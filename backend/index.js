@@ -15,8 +15,12 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({ origin: 'http://localhost:5173' }));
-app.use(express.json());
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'https://asset-dashboard-phi.vercel.app'
+  ]
+}));app.use(express.json());
 
 // ─── Adapter Registry ─────────────────────────────────────
 const ADAPTERS = {
