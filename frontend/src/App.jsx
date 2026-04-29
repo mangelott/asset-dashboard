@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import 'react-calendar/dist/Calendar.css'
 import './App.css'
 
-const API = 'http://localhost:3001'
+const API = 'https://asset-dashboard-production-425c.up.railway.app'
 
 const EXCHANGE_TYPES = {
   binance: { label: 'Binance', color: '#f59e0b' },
