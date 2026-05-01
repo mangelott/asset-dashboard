@@ -2,25 +2,23 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const cron = require('node-cron');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const { getBalances: getBinanceBalances, getFuturesPositions: getBinancePositions } = require('./adapters/binance');
 const { getBalances: getBybitBalances, getPositions: getBybitPositions } = require('./adapters/bybit');
 const { getBalances: getCoinbaseBalances, getPositions: getCoinbasePositions } = require('./adapters/coinbase');
 const { getBalances: getKrakenBalances, getPositions: getKrakenPositions } = require('./adapters/kraken');
 const { getBalances: getOkxBalances, getPositions: getOkxPositions } = require('./adapters/okx');
 const { getBalances: getWalletBalances, getPositions: getWalletPositions } = require('./adapters/wallet_eth');
-const { saveDailySnapshot, getAllSnapshots, saveExchange, getAllExchanges, getExchangeById, deleteExchange } = require('./database');
+const db = require('./database');
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'https://asset-dashboard-phi.vercel.app'
-  ]
-}));app.use(express.json());
+app.use(cors());
+app.use(express.json());
 
 // ─── Adapter Registry ─────────────────────────────────────
 const ADAPTERS = {
@@ -35,7 +33,7 @@ const ADAPTERS = {
 // ─── Helpers ──────────────────────────────────────────────
 async function fetchExchangeData(exchange) {
   const adapter = ADAPTERS[exchange.type];
-  if (!adapter) throw new Error(`Adaptador não encontrado: ${exchange.type}`);
+  if (!adapter) throw new Error(`Adapter not found: ${exchange.type}`);
   if (exchange.type === 'wallet_eth') return adapter.getBalances(exchange.api_key, exchange.api_secret);
   if (exchange.type === 'okx') return adapter.getBalances(exchange.api_key, exchange.api_secret, exchange.passphrase);
   return adapter.getBalances(exchange.api_key, exchange.api_secret);
@@ -48,67 +46,98 @@ async function fetchExchangePositions(exchange) {
   return adapter.getPositions(exchange.api_key, exchange.api_secret);
 }
 
-// ─── Exchanges CRUD ───────────────────────────────────────
-app.get('/api/exchanges', (req, res) => {
+// ─── Auth Middleware ──────────────────────────────────────
+function auth(req, res, next) {
+  const header = req.headers.authorization;
+  if (!header?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
   try {
-    const exchanges = getAllExchanges();
-    res.json(exchanges);
+    req.user = jwt.verify(header.slice(7), process.env.JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+// ─── Auth Routes ──────────────────────────────────────────
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+    if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    const existing = await db.getUserByEmail(email);
+    if (existing) return res.status(409).json({ error: 'Email already registered' });
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = await db.createUser(email, passwordHash);
+    const token = jwt.sign({ userId: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/exchanges', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await db.getUserByEmail(email);
+    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+    const token = jwt.sign({ userId: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── Exchanges CRUD ───────────────────────────────────────
+app.get('/api/exchanges', auth, async (req, res) => {
+  try {
+    res.json(await db.getAllExchanges(req.user.userId));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/exchanges', auth, async (req, res) => {
   try {
     const { id, name, type, apiKey, apiSecret, passphrase } = req.body;
-    if (!id || !name || !type || !apiKey) {
-      return res.status(400).json({ error: 'Campos obrigatórios em falta' });
-    }
-    saveExchange(id, name, type, apiKey, apiSecret || '', passphrase || '');
+    if (!id || !name || !type || !apiKey) return res.status(400).json({ error: 'Missing required fields' });
+    await db.saveExchange(req.user.userId, id, name, type, apiKey, apiSecret || '', passphrase || '');
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete('/api/exchanges/:id', (req, res) => {
+app.delete('/api/exchanges/:id', auth, async (req, res) => {
   try {
-    deleteExchange(req.params.id);
+    await db.deleteExchange(req.user.userId, req.params.id);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─── Account ──────────────────────────────────────────────
-app.get('/api/exchange/:id/account', async (req, res) => {
+app.get('/api/exchange/:id/account', auth, async (req, res) => {
   try {
-    const exchange = getExchangeById(req.params.id);
-    if (!exchange) return res.status(404).json({ error: 'Exchange não encontrada' });
-    const data = await fetchExchangeData(exchange);
-    res.json(data);
+    const exchange = await db.getExchangeById(req.user.userId, req.params.id);
+    if (!exchange) return res.status(404).json({ error: 'Exchange not found' });
+    res.json(await fetchExchangeData(exchange));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/exchange/:id/positions', async (req, res) => {
+app.get('/api/exchange/:id/positions', auth, async (req, res) => {
   try {
-    const exchange = getExchangeById(req.params.id);
-    if (!exchange) return res.status(404).json({ error: 'Exchange não encontrada' });
-    const positions = await fetchExchangePositions(exchange);
-    res.json(positions);
+    const exchange = await db.getExchangeById(req.user.userId, req.params.id);
+    if (!exchange) return res.status(404).json({ error: 'Exchange not found' });
+    res.json(await fetchExchangePositions(exchange));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─── Global ───────────────────────────────────────────────
-app.get('/api/global/account', async (req, res) => {
+app.get('/api/global/account', auth, async (req, res) => {
   try {
-    const exchanges = getAllExchanges().map(e => getExchangeById(e.id));
-    const results = await Promise.allSettled(exchanges.map(e => fetchExchangeData(e)));
+    const list = await db.getAllExchanges(req.user.userId);
+    const exchanges = await Promise.all(list.map(e => db.getExchangeById(req.user.userId, e.id)));
+    const results = await Promise.allSettled(exchanges.map(fetchExchangeData));
 
-    let totalUsdt = 0;
-    let allBalances = [];
-    let breakdown = {};
-
+    let totalUsdt = 0, allBalances = [], breakdown = {};
     results.forEach((result, i) => {
-      const ex = exchanges[i];
       if (result.status === 'fulfilled') {
         totalUsdt += result.value.totalUsdt;
-        allBalances = [...allBalances, ...result.value.balances.map(b => ({ ...b, exchange: ex.name }))];
-        breakdown[ex.name] = result.value.totalUsdt;
+        allBalances = [...allBalances, ...result.value.balances.map(b => ({ ...b, exchange: exchanges[i].name }))];
+        breakdown[exchanges[i].name] = result.value.totalUsdt;
       }
     });
 
@@ -116,16 +145,16 @@ app.get('/api/global/account', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/global/positions', async (req, res) => {
+app.get('/api/global/positions', auth, async (req, res) => {
   try {
-    const exchanges = getAllExchanges().map(e => getExchangeById(e.id));
-    const results = await Promise.allSettled(exchanges.map(e => fetchExchangePositions(e)));
+    const list = await db.getAllExchanges(req.user.userId);
+    const exchanges = await Promise.all(list.map(e => db.getExchangeById(req.user.userId, e.id)));
+    const results = await Promise.allSettled(exchanges.map(fetchExchangePositions));
 
     let allPositions = [];
     results.forEach((result, i) => {
-      if (result.status === 'fulfilled') {
+      if (result.status === 'fulfilled')
         allPositions = [...allPositions, ...result.value.map(p => ({ ...p, exchange: exchanges[i].name }))];
-      }
     });
 
     res.json(allPositions);
@@ -133,63 +162,66 @@ app.get('/api/global/positions', async (req, res) => {
 });
 
 // ─── Snapshots ────────────────────────────────────────────
-app.post('/api/snapshot', async (req, res) => {
+app.post('/api/snapshot', auth, async (req, res) => {
   try {
     const { exchangeId } = req.body;
     const today = new Date().toISOString().split('T')[0];
+    const userId = req.user.userId;
 
     if (exchangeId === 'global') {
-      const exchanges = getAllExchanges().map(e => getExchangeById(e.id));
-      const results = await Promise.allSettled(exchanges.map(e => fetchExchangeData(e)));
+      const list = await db.getAllExchanges(userId);
+      const exchanges = await Promise.all(list.map(e => db.getExchangeById(userId, e.id)));
+      const results = await Promise.allSettled(exchanges.map(fetchExchangeData));
       let totalUsdt = 0;
       results.forEach(r => { if (r.status === 'fulfilled') totalUsdt += r.value.totalUsdt; });
-      saveDailySnapshot(`global_${today}`, totalUsdt);
+      await db.saveDailySnapshot(userId, 'global', today, totalUsdt);
       res.json({ date: today, total_value_usdt: totalUsdt });
     } else {
-      const exchange = getExchangeById(exchangeId);
-      if (!exchange) return res.status(404).json({ error: 'Exchange não encontrada' });
+      const exchange = await db.getExchangeById(userId, exchangeId);
+      if (!exchange) return res.status(404).json({ error: 'Exchange not found' });
       const data = await fetchExchangeData(exchange);
-      saveDailySnapshot(`${exchangeId}_${today}`, data.totalUsdt);
+      await db.saveDailySnapshot(userId, exchangeId, today, data.totalUsdt);
       res.json({ date: today, total_value_usdt: data.totalUsdt });
     }
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/snapshots/:exchangeId', (req, res) => {
+app.get('/api/snapshots/:exchangeId', auth, async (req, res) => {
   try {
-    const { exchangeId } = req.params;
-    const all = getAllSnapshots();
-    const filtered = all
-      .filter(s => s.date.startsWith(exchangeId))
-      .map(s => ({ ...s, date: s.date.replace(`${exchangeId}_`, '') }));
-    res.json(filtered);
+    const rows = await db.getSnapshotsByExchangeId(req.user.userId, req.params.exchangeId);
+    res.json(rows.map(s => ({ ...s, date: new Date(s.date).toISOString().split('T')[0] })));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ─── Snapshot automático ──────────────────────────────────
+// ─── Auto snapshot (cron) ─────────────────────────────────
 cron.schedule('0 0 * * *', async () => {
   try {
-    const exchanges = getAllExchanges().map(e => getExchangeById(e.id));
+    const users = await db.getAllUsers();
     const today = new Date().toISOString().split('T')[0];
-    let globalTotal = 0;
 
-    for (const exchange of exchanges) {
-      try {
-        const data = await fetchExchangeData(exchange);
-        saveDailySnapshot(`${exchange.id}_${today}`, data.totalUsdt);
-        globalTotal += data.totalUsdt;
-      } catch (e) {
-        console.error(`Erro snapshot ${exchange.name}:`, e.message);
+    for (const { id: userId } of users) {
+      const list = await db.getAllExchanges(userId);
+      const exchanges = await Promise.all(list.map(e => db.getExchangeById(userId, e.id)));
+      let globalTotal = 0;
+
+      for (const exchange of exchanges) {
+        try {
+          const data = await fetchExchangeData(exchange);
+          await db.saveDailySnapshot(userId, exchange.id, today, data.totalUsdt);
+          globalTotal += data.totalUsdt;
+        } catch (e) {
+          console.error(`Snapshot error ${exchange.name}:`, e.message);
+        }
       }
-    }
 
-    saveDailySnapshot(`global_${today}`, globalTotal);
-    console.log(`Snapshots automáticos guardados: ${today}`);
-  } catch (e) { console.error('Erro snapshot automático:', e.message); }
+      await db.saveDailySnapshot(userId, 'global', today, globalTotal);
+    }
+    console.log(`Auto snapshots saved: ${today}`);
+  } catch (e) { console.error('Auto snapshot error:', e.message); }
 });
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
-app.listen(PORT, () => {
-  console.log(`Servidor a correr na porta ${PORT}`);
-});
+db.initDB()
+  .then(() => app.listen(PORT, () => console.log(`Server running on port ${PORT}`)))
+  .catch(e => { console.error('DB init failed:', e.message); process.exit(1); });

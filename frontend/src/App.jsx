@@ -507,11 +507,80 @@ function Dashboard({ exchange, isGlobal }) {
   )
 }
 
+// ─── Auth Form ────────────────────────────────────────────
+function AuthForm({ onAuth }) {
+  const [mode, setMode] = useState('login')
+  const [form, setForm] = useState({ email: '', password: '' })
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function submit(e) {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      const res = await axios.post(`${API}/api/auth/${mode}`, form)
+      onAuth(res.data.token)
+    } catch (e) {
+      setError(e.response?.data?.error || 'Something went wrong')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="auth-overlay">
+      <div className="auth-card">
+        <div className="auth-logo">₿</div>
+        <h1>Crypto Dashboard</h1>
+        <div className="auth-tabs">
+          <button className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setError('') }}>Login</button>
+          <button className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); setError('') }}>Register</button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="form-group">
+            <label>Email</label>
+            <input type="email" placeholder="you@example.com" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required />
+          </div>
+          <div className="form-group">
+            <label>Password</label>
+            <input type="password" placeholder="••••••••" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required />
+          </div>
+          {error && <p className="auth-error">{error}</p>}
+          <button className="btn-primary" type="submit" disabled={loading}>
+            {loading ? '...' : mode === 'login' ? 'Login' : 'Create Account'}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // ─── App ──────────────────────────────────────────────────
 export default function App() {
+  const [token, setToken] = useState(() => localStorage.getItem('token'))
   const [exchanges, setExchanges] = useState([])
   const [activeTab, setActiveTab] = useState('global')
   const [showSettings, setShowSettings] = useState(false)
+
+  useEffect(() => {
+    if (token) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+    } else {
+      delete axios.defaults.headers.common['Authorization']
+    }
+  }, [token])
+
+  function handleAuth(newToken) {
+    localStorage.setItem('token', newToken)
+    setToken(newToken)
+  }
+
+  function logout() {
+    localStorage.removeItem('token')
+    setToken(null)
+    setExchanges([])
+  }
 
   async function fetchExchanges() {
     try {
@@ -521,7 +590,11 @@ export default function App() {
     } catch (e) { console.error(e) }
   }
 
-  useEffect(() => { fetchExchanges() }, [])
+  useEffect(() => {
+    if (token) fetchExchanges()
+  }, [token])
+
+  if (!token) return <AuthForm onAuth={handleAuth} />
 
   const activeExchange = exchanges.find(e => e.id === activeTab)
   const isGlobal = activeTab === 'global'
@@ -537,7 +610,10 @@ export default function App() {
             <span className="subtitle">{dayjs().format('DD MMM YYYY')}</span>
           </div>
         </div>
-        <button className="btn-settings" onClick={() => setShowSettings(true)}>⚙️ Settings</button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button className="btn-settings" onClick={() => setShowSettings(true)}>⚙️ Settings</button>
+          <button className="btn-settings" onClick={logout} style={{ color: '#ef4444', borderColor: '#ef444433' }}>Logout</button>
+        </div>
       </header>
 
       <div className="tabs">
