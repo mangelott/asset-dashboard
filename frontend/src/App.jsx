@@ -19,24 +19,24 @@ const EXCHANGE_TYPES = {
 }
 
 // ─── Positions Table ──────────────────────────────────────
-function PositionsTable({ positions, loading }) {
-  if (loading) return <div className="table-loading">A carregar posições...</div>
-  if (!positions.length) return <div className="empty-state">Sem posições abertas</div>
+function PositionsTable({ positions, loading }) { 
+  if (loading) return <div className="table-loading">Loading positions...</div>
+  if (!positions.length) return <div className="empty-state">No open positions</div>
 
   return (
     <table>
       <thead>
         <tr>
-          <th>Par</th>
+          <th>Pair</th>
           {positions[0]?.exchange && <th>Exchange</th>}
-          <th>Direção</th>
-          <th>Tamanho</th>
-          <th>Preço Entrada</th>
-          <th>Preço Atual</th>
+          <th>Direction</th>
+          <th>Size</th>
+          <th>Entry Price</th>
+          <th>Current Price</th>
           <th>P&L $</th>
           <th>P&L %</th>
           <th>Liq. Price</th>
-          <th>Alavancagem</th>
+          <th>Leverage</th>
         </tr>
       </thead>
       <tbody>
@@ -67,8 +67,8 @@ function PositionsTable({ positions, loading }) {
 
 // ─── Balances Table ───────────────────────────────────────
 function BalancesTable({ balances, totalUsdt, isGlobal, loading }) {
-  if (loading) return <div className="table-loading">A carregar saldos...</div>
-  if (!balances.length) return <div className="empty-state">Sem saldos disponíveis</div>
+  if (loading) return <div className="table-loading">Loading balances...</div>
+  if (!balances.length) return <div className="empty-state">No balances available</div>
 
   const spotBalances = balances.filter(b => b.type === 'Spot' || !b.type)
   const futuresBalances = balances.filter(b => b.type === 'Futures')
@@ -77,15 +77,15 @@ function BalancesTable({ balances, totalUsdt, isGlobal, loading }) {
     <table>
       <thead>
         <tr>
-          <th>Moeda</th>
+          <th>Currency</th>
           {isGlobal && <th>Exchange</th>}
-          <th>Quantidade</th>
-          {!isFutures && <th>Preço Médio</th>}
-          {!isFutures && <th>Preço Atual</th>}
-          <th>Valor (USDT)</th>
+          <th>Amount</th>
+          {!isFutures && <th>Avg Price</th>}
+          {!isFutures && <th>Current Price</th>}
+          <th>Value (USDT)</th>
           {!isFutures && <th>P&L $</th>}
           {!isFutures && <th>P&L %</th>}
-          <th>% Carteira</th>
+          <th>% Portfolio</th>
         </tr>
       </thead>
       <tbody>
@@ -133,7 +133,7 @@ function BalancesTable({ balances, totalUsdt, isGlobal, loading }) {
       )}
       {futuresBalances.length > 0 && (
         <>
-          <div className="table-section-label" style={{ marginTop: '16px' }}>Margem Futures</div>
+          <div className="table-section-label" style={{ marginTop: '16px' }}>Futures Margin</div>
           {renderTable(futuresBalances, true)}
         </>
       )}
@@ -158,7 +158,7 @@ function SettingsModal({ onClose, onUpdate }) {
   }
 
   async function saveExchange() {
-    if (!form.name || !form.apiKey) return alert('Preenche pelo menos o nome e a API Key / Endereço')
+    if (!form.name || !form.apiKey) return alert('Please fill in at least the name and API Key / Address')
     setLoading(true)
     try {
       const id = editing || Date.now().toString()
@@ -174,7 +174,7 @@ function SettingsModal({ onClose, onUpdate }) {
       setForm({ name: '', type: 'binance', apiKey: '', apiSecret: '', passphrase: '' })
       setEditing(null)
       onUpdate()
-    } catch (e) { alert('Erro ao guardar exchange') }
+    } catch (e) { alert('Error saving exchange') }
     finally { setLoading(false) }
   }
 
@@ -183,7 +183,7 @@ function SettingsModal({ onClose, onUpdate }) {
       await axios.delete(`${API}/api/exchanges/${id}`)
       await fetchExchanges()
       onUpdate()
-    } catch (e) { alert('Erro ao remover exchange') }
+    } catch (e) { alert('Error removing exchange') }
   }
 
   function editExchange(ex) {
@@ -195,72 +195,72 @@ function SettingsModal({ onClose, onUpdate }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>⚙️ Configurar Exchanges</h2>
+          <h2>⚙️ Configure Exchanges</h2>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
 
         <div className="modal-section">
-          <h3>{editing ? 'Editar Exchange' : 'Adicionar Exchange'}</h3>
+          <h3>{editing ? 'Edit Exchange' : 'Add Exchange'}</h3>
           <div className="form-grid">
             <div className="form-group">
-              <label>Nome</label>
-              <input placeholder="ex: Binance Principal" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+              <label>Name</label>
+              <input placeholder="e.g.: Main Binance" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
             </div>
             <div className="form-group">
-              <label>Tipo</label>
+              <label>Type</label>
               <select value={form.type} onChange={e => setForm({ ...form, type: e.target.value, apiKey: '', apiSecret: '', passphrase: '' })}>
                 <option value="binance">Binance</option>
                 <option value="bybit">Bybit</option>
                 <option value="coinbase">Coinbase</option>
                 <option value="kraken">Kraken</option>
                 <option value="okx">OKX</option>
-                <option value="wallet_eth">Wallet Ethereum</option>
+                <option value="wallet_eth">Ethereum Wallet</option>
               </select>
             </div>
 
             {form.type === 'wallet_eth' ? (
               <>
                 <div className="form-group full">
-                  <label>Endereço Público da Wallet</label>
+                  <label>Public Wallet Address</label>
                   <input placeholder="0x..." value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} />
                 </div>
                 <div className="form-group full">
-                  <label>Etherscan API Key <span style={{ color: '#475569', fontWeight: 400 }}>(gratuita em etherscan.io)</span></label>
-                  <input placeholder="Cola aqui a tua Etherscan API Key" value={form.apiSecret} onChange={e => setForm({ ...form, apiSecret: e.target.value })} />
+                  <label>Etherscan API Key <span style={{ color: '#475569', fontWeight: 400 }}>(free at etherscan.io)</span></label>
+                  <input placeholder="Paste your Etherscan API Key here" value={form.apiSecret} onChange={e => setForm({ ...form, apiSecret: e.target.value })} />
                 </div>
               </>
             ) : (
               <>
                 <div className="form-group full">
                   <label>API Key</label>
-                  <input placeholder={editing ? 'Deixa em branco para manter a atual' : 'Cola aqui a tua API Key'} value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} />
+                  <input placeholder={editing ? 'Leave blank to keep current' : 'Paste your API Key here'} value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} />
                 </div>
                 <div className="form-group full">
                   <label>API Secret</label>
-                  <input type="password" placeholder={editing ? 'Deixa em branco para manter o atual' : 'Cola aqui o teu API Secret'} value={form.apiSecret} onChange={e => setForm({ ...form, apiSecret: e.target.value })} />
+                  <input type="password" placeholder={editing ? 'Leave blank to keep current' : 'Paste your API Secret here'} value={form.apiSecret} onChange={e => setForm({ ...form, apiSecret: e.target.value })} />
                 </div>
                 {form.type === 'okx' && (
                   <div className="form-group full">
-                    <label>Passphrase <span style={{ color: '#475569', fontWeight: 400 }}>(obrigatório para OKX)</span></label>
-                    <input type="password" placeholder="Cola aqui a tua Passphrase" value={form.passphrase || ''} onChange={e => setForm({ ...form, passphrase: e.target.value })} />
+                    <label>Passphrase <span style={{ color: '#475569', fontWeight: 400 }}>(required for OKX)</span></label>
+                    <input type="password" placeholder="Paste your Passphrase here" value={form.passphrase || ''} onChange={e => setForm({ ...form, passphrase: e.target.value })} />
                   </div>
                 )}
               </>
             )}
           </div>
           <button className="btn-primary" onClick={saveExchange} disabled={loading}>
-            {loading ? 'A guardar...' : editing ? 'Guardar Alterações' : '+ Adicionar Exchange'}
+            {loading ? 'Saving...' : editing ? 'Save Changes' : '+ Add Exchange'}
           </button>
           {editing && (
             <button className="btn-ghost" onClick={() => { setEditing(null); setForm({ name: '', type: 'binance', apiKey: '', apiSecret: '', passphrase: '' }) }}>
-              Cancelar
+              Cancel
             </button>
           )}
         </div>
 
         {exchanges.length > 0 && (
           <div className="modal-section">
-            <h3>Exchanges Configuradas</h3>
+            <h3>Configured Exchanges</h3>
             <div className="exchange-list">
               {exchanges.map(ex => (
                 <div key={ex.id} className="exchange-item">
@@ -272,8 +272,8 @@ function SettingsModal({ onClose, onUpdate }) {
                     </div>
                   </div>
                   <div className="exchange-item-actions">
-                    <button onClick={() => editExchange(ex)}>Editar</button>
-                    <button className="btn-danger" onClick={() => removeExchange(ex.id)}>Remover</button>
+                    <button onClick={() => editExchange(ex)}>Edit</button>
+                    <button className="btn-danger" onClick={() => removeExchange(ex.id)}>Remove</button>
                   </div>
                 </div>
               ))}
@@ -282,8 +282,8 @@ function SettingsModal({ onClose, onUpdate }) {
         )}
 
         <div className="modal-footer">
-          <p className="security-note">🔒 As tuas API keys são guardadas de forma segura na base de dados local do servidor.</p>
-          <button className="btn-primary" onClick={onClose}>Fechar</button>
+          <p className="security-note">🔒 Your API keys are stored securely in the server's local database.</p>
+          <button className="btn-primary" onClick={onClose}>Close</button>
         </div>
       </div>
     </div>
@@ -317,7 +317,7 @@ function Dashboard({ exchange, isGlobal }) {
       setBreakdown(res.data.breakdown || {})
       setLastUpdated(new Date())
     } catch (e) {
-      console.error('Erro saldos:', e.message)
+      console.error('Balance error:', e.message)
     } finally {
       setLoadingBalances(false)
     }
@@ -328,7 +328,7 @@ function Dashboard({ exchange, isGlobal }) {
       const res = await axios.get(positionsUrl)
       setPositions(res.data || [])
     } catch (e) {
-      console.error('Erro posições:', e.message)
+      console.error('Positions error:', e.message)
     } finally {
       setLoadingPositions(false)
     }
@@ -346,7 +346,7 @@ function Dashboard({ exchange, isGlobal }) {
     try {
       await axios.post(`${API}/api/snapshot`, { exchangeId })
       await fetchSnapshots()
-    } catch (e) { alert('Erro ao guardar snapshot') }
+    } catch (e) { alert('Error saving snapshot') }
     finally { setSaving(false) }
   }
 
@@ -401,29 +401,29 @@ function Dashboard({ exchange, isGlobal }) {
     <div>
       <div className="stats">
         <div className="stat-card main" style={{ borderColor: `${color}33` }}>
-          <span className="label">Valor Total</span>
+          <span className="label">Total Value</span>
           <span className="value">${totalUsdt.toFixed(2)}</span>
           <span className="badge" style={{ color: totalPnl >= 0 ? '#22c55e' : '#ef4444' }}>
-            {totalPnl >= 0 ? '▲' : '▼'} {Math.abs(totalPnlPct)}% desde o início
+            {totalPnl >= 0 ? '▲' : '▼'} {Math.abs(totalPnlPct)}% since start
           </span>
         </div>
         <div className="stat-card">
-          <span className="label">P&L Histórico</span>
+          <span className="label">Historical P&L</span>
           <span className="value" style={{ color: totalPnl >= 0 ? '#22c55e' : '#ef4444' }}>
             {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)}$
           </span>
-          <span className="badge">desde o primeiro snapshot</span>
+          <span className="badge">since first snapshot</span>
         </div>
         <div className="stat-card">
-          <span className="label">P&L Futuros (aberto)</span>
+          <span className="label">Futures P&L (open)</span>
           <span className="value" style={{ color: totalFuturesPnl >= 0 ? '#22c55e' : '#ef4444' }}>
             {totalFuturesPnl >= 0 ? '+' : ''}{totalFuturesPnl.toFixed(2)}$
           </span>
-          <span className="badge">{positions.length} posições • ↻ 5s</span>
+          <span className="badge">{positions.length} positions • ↻ 5s</span>
         </div>
         {isGlobal ? (
           <div className="stat-card">
-            <span className="label">Distribuição</span>
+            <span className="label">Distribution</span>
             <div style={{ marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {Object.entries(breakdown).map(([name, value]) => (
                 <span key={name} style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>
@@ -434,11 +434,11 @@ function Dashboard({ exchange, isGlobal }) {
           </div>
         ) : (
           <div className="stat-card">
-            <span className="label">P&L Hoje</span>
+            <span className="label">Today's P&L</span>
             <span className="value" style={{ color: todayPnl >= 0 ? '#22c55e' : '#ef4444' }}>
               {todayPnl >= 0 ? '+' : ''}{todayPnl.toFixed(2)}$
             </span>
-            <span className="badge">vs ontem</span>
+            <span className="badge">vs yesterday</span>
           </div>
         )}
       </div>
@@ -446,11 +446,12 @@ function Dashboard({ exchange, isGlobal }) {
       <div className="main-grid">
         <div className="card">
           <div className="card-header">
-            <h2>Evolução da Conta</h2>
+            <h2>Account Evolution</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               {lastUpdated && <span className="update-time">↻ {dayjs(lastUpdated).format('HH:mm:ss')}</span>}
               <button className="btn-snapshot" onClick={saveSnapshot} disabled={saving}>
                 {saving ? '...' : '+ Snapshot'}
+
               </button>
             </div>
           </div>
@@ -465,7 +466,7 @@ function Dashboard({ exchange, isGlobal }) {
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
               <XAxis dataKey="date" stroke="#475569" tick={{ fontSize: 12 }} />
               <YAxis stroke="#475569" tick={{ fontSize: 12 }} />
-              <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} labelStyle={{ color: '#94a3b8' }} formatter={v => [`$${v}`, 'Valor']} />
+              <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} labelStyle={{ color: '#94a3b8' }} formatter={v => [`$${v}`, 'Value']} />
               <Area type="monotone" dataKey="valor" stroke={color} strokeWidth={2} fill={`url(#grad-${exchangeId})`} />
             </AreaChart>
           </ResponsiveContainer>
@@ -473,10 +474,10 @@ function Dashboard({ exchange, isGlobal }) {
 
         <div className="card">
           <div className="card-header">
-            <h2>Calendário P&L</h2>
+            <h2>P&L Calendar</h2>
             <div className="legend">
-              <span className="legend-item profit">● Lucro</span>
-              <span className="legend-item loss">● Perda</span>
+              <span className="legend-item profit">● Profit</span>
+              <span className="legend-item loss">● Loss</span>
             </div>
           </div>
           <Calendar tileContent={tileContent} tileClassName={tileClassName} />
@@ -485,9 +486,9 @@ function Dashboard({ exchange, isGlobal }) {
 
       <div className="card">
         <div className="card-header">
-          <h2>Posições Abertas — Futuros</h2>
+          <h2>Open Positions — Futures</h2>
           <span className="tag" style={{ color, background: `${color}22` }}>
-            {positions.length} posições • ↻ 5s
+            {positions.length} positions • ↻ 5s
           </span>
         </div>
         <PositionsTable positions={positions} loading={loadingPositions} />
@@ -495,9 +496,9 @@ function Dashboard({ exchange, isGlobal }) {
 
       <div className="card">
         <div className="card-header">
-          <h2>Saldos da Wallet</h2>
+          <h2>Wallet Balances</h2>
           <span className="tag" style={{ color, background: `${color}22` }}>
-            {balances.length} ativos • ↻ 60s
+            {balances.length} assets • ↻ 60s
           </span>
         </div>
         <BalancesTable balances={balances} totalUsdt={totalUsdt} isGlobal={isGlobal} loading={loadingBalances} />
@@ -536,7 +537,7 @@ export default function App() {
             <span className="subtitle">{dayjs().format('DD MMM YYYY')}</span>
           </div>
         </div>
-        <button className="btn-settings" onClick={() => setShowSettings(true)}>⚙️ Configurações</button>
+        <button className="btn-settings" onClick={() => setShowSettings(true)}>⚙️ Settings</button>
       </header>
 
       <div className="tabs">
@@ -561,8 +562,8 @@ export default function App() {
         <Dashboard key={activeTab} exchange={activeExchange} isGlobal={isGlobal} />
       ) : (
         <div className="empty-dashboard">
-          <p>Nenhuma exchange configurada.</p>
-          <button className="btn-primary" onClick={() => setShowSettings(true)}>Configurar agora</button>
+          <p>No exchange configured.</p>
+          <button className="btn-primary" onClick={() => setShowSettings(true)}>Configure now</button>
         </div>
       )}
 
