@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import Calendar from 'react-calendar'
 import dayjs from 'dayjs'
 import 'react-calendar/dist/Calendar.css'
 import './App.css'
+import Landing from './pages/Landing'
 
 const API = 'https://asset-dashboard-production-425c.up.railway.app'
 
@@ -507,12 +509,19 @@ function Dashboard({ exchange, isGlobal }) {
   )
 }
 
-// ─── Auth Form ────────────────────────────────────────────
-function AuthForm({ onAuth }) {
-  const [mode, setMode] = useState('login')
+// ─── Auth Page ────────────────────────────────────────────
+function AuthPage({ onAuth, defaultMode }) {
+  const navigate = useNavigate()
+  const [mode, setMode] = useState(defaultMode)
   const [form, setForm] = useState({ email: '', password: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  function switchMode(next) {
+    setMode(next)
+    setError('')
+    navigate(`/${next}`, { replace: true })
+  }
 
   async function submit(e) {
     e.preventDefault()
@@ -531,11 +540,12 @@ function AuthForm({ onAuth }) {
   return (
     <div className="auth-overlay">
       <div className="auth-card">
+        <button className="auth-back" onClick={() => navigate('/')}>← assetfol.io</button>
         <div className="auth-logo">₿</div>
-        <h1>Crypto Dashboard</h1>
+        <h1>{mode === 'login' ? 'Welcome back' : 'Create account'}</h1>
         <div className="auth-tabs">
-          <button className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setError('') }}>Login</button>
-          <button className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); setError('') }}>Register</button>
+          <button className={mode === 'login' ? 'active' : ''} onClick={() => switchMode('login')}>Login</button>
+          <button className={mode === 'register' ? 'active' : ''} onClick={() => switchMode('register')}>Register</button>
         </div>
         <form onSubmit={submit}>
           <div className="form-group">
@@ -556,31 +566,11 @@ function AuthForm({ onAuth }) {
   )
 }
 
-// ─── App ──────────────────────────────────────────────────
-export default function App() {
-  const [token, setToken] = useState(() => localStorage.getItem('token'))
+// ─── Dashboard Page ────────────────────────────────────────
+function DashboardPage({ onLogout }) {
   const [exchanges, setExchanges] = useState([])
   const [activeTab, setActiveTab] = useState('global')
   const [showSettings, setShowSettings] = useState(false)
-
-  useEffect(() => {
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
-    } else {
-      delete axios.defaults.headers.common['Authorization']
-    }
-  }, [token])
-
-  function handleAuth(newToken) {
-    localStorage.setItem('token', newToken)
-    setToken(newToken)
-  }
-
-  function logout() {
-    localStorage.removeItem('token')
-    setToken(null)
-    setExchanges([])
-  }
 
   async function fetchExchanges() {
     try {
@@ -590,11 +580,7 @@ export default function App() {
     } catch (e) { console.error(e) }
   }
 
-  useEffect(() => {
-    if (token) fetchExchanges()
-  }, [token])
-
-  if (!token) return <AuthForm onAuth={handleAuth} />
+  useEffect(() => { fetchExchanges() }, [])
 
   const activeExchange = exchanges.find(e => e.id === activeTab)
   const isGlobal = activeTab === 'global'
@@ -612,7 +598,7 @@ export default function App() {
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <button className="btn-settings" onClick={() => setShowSettings(true)}>⚙️ Settings</button>
-          <button className="btn-settings" onClick={logout} style={{ color: '#ef4444', borderColor: '#ef444433' }}>Logout</button>
+          <button className="btn-settings" onClick={onLogout} style={{ color: '#ef4444', borderColor: '#ef444433' }}>Logout</button>
         </div>
       </header>
 
@@ -644,11 +630,40 @@ export default function App() {
       )}
 
       {showSettings && (
-        <SettingsModal
-          onUpdate={fetchExchanges}
-          onClose={() => setShowSettings(false)}
-        />
+        <SettingsModal onUpdate={fetchExchanges} onClose={() => setShowSettings(false)} />
       )}
     </div>
+  )
+}
+
+// ─── App ──────────────────────────────────────────────────
+export default function App() {
+  const [token, setToken] = useState(() => localStorage.getItem('token'))
+
+  useEffect(() => {
+    if (token) axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+    else delete axios.defaults.headers.common['Authorization']
+  }, [token])
+
+  function handleAuth(newToken) {
+    localStorage.setItem('token', newToken)
+    axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
+    setToken(newToken)
+  }
+
+  function handleLogout() {
+    localStorage.removeItem('token')
+    delete axios.defaults.headers.common['Authorization']
+    setToken(null)
+  }
+
+  return (
+    <Routes>
+      <Route path="/" element={token ? <Navigate to="/dashboard" replace /> : <Landing />} />
+      <Route path="/login" element={token ? <Navigate to="/dashboard" replace /> : <AuthPage onAuth={handleAuth} defaultMode="login" />} />
+      <Route path="/register" element={token ? <Navigate to="/dashboard" replace /> : <AuthPage onAuth={handleAuth} defaultMode="register" />} />
+      <Route path="/dashboard" element={token ? <DashboardPage onLogout={handleLogout} /> : <Navigate to="/login" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   )
 }
