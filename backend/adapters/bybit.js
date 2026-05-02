@@ -17,15 +17,20 @@ function signRequest(apiKey, secret, params) {
 async function request(apiKey, secret, endpoint, params = {}) {
   const { timestamp, recvWindow, signature } = signRequest(apiKey, secret, params);
   const queryString = new URLSearchParams(params).toString();
-  const response = await axios.get(`${BASE_URL}${endpoint}?${queryString}`, {
-    headers: {
-      'X-BAPI-API-KEY': apiKey,
-      'X-BAPI-TIMESTAMP': timestamp,
-      'X-BAPI-RECV-WINDOW': recvWindow,
-      'X-BAPI-SIGN': signature
-    }
-  });
-  return response.data;
+  try {
+    const response = await axios.get(`${BASE_URL}${endpoint}?${queryString}`, {
+      headers: {
+        'X-BAPI-API-KEY': apiKey,
+        'X-BAPI-TIMESTAMP': timestamp,
+        'X-BAPI-RECV-WINDOW': recvWindow,
+        'X-BAPI-SIGN': signature
+      }
+    });
+    return response.data;
+  } catch (e) {
+    console.error(`[Bybit] ${endpoint} HTTP ${e.response?.status}:`, JSON.stringify(e.response?.data));
+    throw e;
+  }
 }
 
 async function getSpotPnl(apiKey, secret, coin, currentPrice) {
