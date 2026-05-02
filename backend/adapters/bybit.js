@@ -54,14 +54,18 @@ async function getSpotPnl(apiKey, secret, coin, currentPrice) {
 }
 
 async function getBalances(apiKey, secret) {
-  const data = await request(apiKey, secret, '/v5/account/wallet-balance', { accountType: 'UNIFIED' });
+  let data = await request(apiKey, secret, '/v5/account/wallet-balance', { accountType: 'UNIFIED' });
+  console.log('[Bybit] UNIFIED wallet-balance retCode:', data.retCode, 'retMsg:', data.retMsg, 'list length:', data.result?.list?.length);
 
-  console.log('[Bybit] wallet-balance retCode:', data.retCode, 'retMsg:', data.retMsg, 'list length:', data.result?.list?.length);
-  if (data.result?.list?.[0]) console.log('[Bybit] totalEquity:', data.result.list[0].totalEquity, 'coins:', data.result.list[0].coin?.length);
+  if (!data.result?.list?.length) {
+    data = await request(apiKey, secret, '/v5/account/wallet-balance', { accountType: 'CONTRACT' });
+    console.log('[Bybit] CONTRACT wallet-balance retCode:', data.retCode, 'retMsg:', data.retMsg, 'list length:', data.result?.list?.length);
+  }
 
-  if (!data.result?.list) throw new Error('Erro ao buscar saldo Bybit');
+  if (!data.result?.list?.length) throw new Error('Bybit: no account data returned');
 
   const account = data.result.list[0];
+  console.log('[Bybit] totalEquity:', account.totalEquity, 'coins:', account.coin?.length);
   const totalUsdt = parseFloat(account.totalEquity || 0);
 
   const coins = (account.coin || []).filter(c => parseFloat(c.equity) > 0);

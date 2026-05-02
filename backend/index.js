@@ -1,6 +1,8 @@
+const dotenv = require('dotenv');
+dotenv.config();
+
 const express = require('express');
 const cors = require('cors');
-const dotenv = require('dotenv');
 const cron = require('node-cron');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -11,8 +13,6 @@ const { getBalances: getKrakenBalances, getPositions: getKrakenPositions } = req
 const { getBalances: getOkxBalances, getPositions: getOkxPositions } = require('./adapters/okx');
 const { getBalances: getWalletBalances, getPositions: getWalletPositions } = require('./adapters/wallet_eth');
 const db = require('./database');
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -134,7 +134,9 @@ app.get('/api/global/account', auth, async (req, res) => {
 
     let totalUsdt = 0, allBalances = [], breakdown = {};
     results.forEach((result, i) => {
-      if (result.status === 'fulfilled') {
+      if (result.status === 'rejected') {
+        console.error(`[${exchanges[i]?.name}] account error:`, result.reason?.message);
+      } else {
         totalUsdt += result.value.totalUsdt;
         allBalances = [...allBalances, ...result.value.balances.map(b => ({ ...b, exchange: exchanges[i].name }))];
         breakdown[exchanges[i].name] = result.value.totalUsdt;
@@ -153,8 +155,11 @@ app.get('/api/global/positions', auth, async (req, res) => {
 
     let allPositions = [];
     results.forEach((result, i) => {
-      if (result.status === 'fulfilled')
+      if (result.status === 'rejected') {
+        console.error(`[${exchanges[i]?.name}] positions error:`, result.reason?.message);
+      } else {
         allPositions = [...allPositions, ...result.value.map(p => ({ ...p, exchange: exchanges[i].name }))];
+      }
     });
 
     res.json(allPositions);
