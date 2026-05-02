@@ -56,6 +56,9 @@ async function getSpotPnl(apiKey, secret, coin, currentPrice) {
 async function getBalances(apiKey, secret) {
   const data = await request(apiKey, secret, '/v5/account/wallet-balance', { accountType: 'UNIFIED' });
 
+  console.log('[Bybit] wallet-balance retCode:', data.retCode, 'retMsg:', data.retMsg, 'list length:', data.result?.list?.length);
+  if (data.result?.list?.[0]) console.log('[Bybit] totalEquity:', data.result.list[0].totalEquity, 'coins:', data.result.list[0].coin?.length);
+
   if (!data.result?.list) throw new Error('Erro ao buscar saldo Bybit');
 
   const account = data.result.list[0];
@@ -94,6 +97,8 @@ async function getPositions(apiKey, secret) {
   const data = await request(apiKey, secret, '/v5/position/list', {
     category: 'linear', settleCoin: 'USDT'
   });
+
+  console.log('[Bybit] positions retCode:', data.retCode, 'retMsg:', data.retMsg, 'count:', data.result?.list?.length);
 
   if (!data.result?.list) return [];
 
