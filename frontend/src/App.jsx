@@ -638,12 +638,11 @@ function DashboardPage({ onLogout }) {
 
 // ─── App ──────────────────────────────────────────────────
 export default function App() {
-  const [token, setToken] = useState(() => localStorage.getItem('token'))
-
-  useEffect(() => {
-    if (token) axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
-    else delete axios.defaults.headers.common['Authorization']
-  }, [token])
+  const [token, setToken] = useState(() => {
+    const t = localStorage.getItem('token')
+    if (t) axios.defaults.headers.common['Authorization'] = `Bearer ${t}`
+    return t
+  })
 
   function handleAuth(newToken) {
     localStorage.setItem('token', newToken)
