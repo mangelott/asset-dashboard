@@ -571,11 +571,13 @@ function DashboardPage({ onLogout }) {
   const [exchanges, setExchanges] = useState([])
   const [activeTab, setActiveTab] = useState('global')
   const [showSettings, setShowSettings] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   async function fetchExchanges() {
     try {
       const res = await axios.get(`${API}/api/exchanges`)
       setExchanges(res.data)
+      setRefreshKey(k => k + 1)
       if (res.data.length === 0) setShowSettings(true)
     } catch (e) { console.error(e) }
   }
@@ -621,7 +623,7 @@ function DashboardPage({ onLogout }) {
       </div>
 
       {(isGlobal || activeExchange) ? (
-        <Dashboard key={activeTab} exchange={activeExchange} isGlobal={isGlobal} />
+        <Dashboard key={`${activeTab}-${refreshKey}`} exchange={activeExchange} isGlobal={isGlobal} />
       ) : (
         <div className="empty-dashboard">
           <p>No exchange configured.</p>
