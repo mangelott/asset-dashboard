@@ -370,7 +370,7 @@ function Dashboard({ exchange, isGlobal }) {
     const dateStr = dayjs(date).format('YYYY-MM-DD')
     const idx = snapshots.findIndex(s => s.date === dateStr)
     if (idx <= 0) return null
-    return snapshots[idx].total_value_usdt - snapshots[idx - 1].total_value_usdt
+    return parseFloat(snapshots[idx].total_value_usdt) - parseFloat(snapshots[idx - 1].total_value_usdt)
   }
 
   function tileContent({ date }) {
@@ -388,14 +388,14 @@ function Dashboard({ exchange, isGlobal }) {
 
   const chartData = snapshots.map(s => ({
     date: dayjs(s.date).format('DD/MM'),
-    valor: parseFloat(s.total_value_usdt.toFixed(2))
+    valor: parseFloat(parseFloat(s.total_value_usdt).toFixed(2))
   }))
 
-  const firstValue = snapshots.length > 0 ? snapshots[0].total_value_usdt : 0
+  const firstValue = snapshots.length > 0 ? parseFloat(snapshots[0].total_value_usdt) : 0
   const totalPnl = totalUsdt - firstValue
   const totalPnlPct = firstValue > 0 ? ((totalPnl / firstValue) * 100).toFixed(2) : 0
   const todayPnl = snapshots.length > 1
-    ? snapshots[snapshots.length - 1].total_value_usdt - snapshots[snapshots.length - 2].total_value_usdt
+    ? parseFloat(snapshots[snapshots.length - 1].total_value_usdt) - parseFloat(snapshots[snapshots.length - 2].total_value_usdt)
     : 0
   const totalFuturesPnl = positions.reduce((sum, p) => sum + p.pnl, 0)
 
