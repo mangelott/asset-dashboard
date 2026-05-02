@@ -227,6 +227,20 @@ cron.schedule('0 0 * * *', async () => {
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
+app.get('/api/debug/exchange/:id', auth, async (req, res) => {
+  try {
+    const exchange = await db.getExchangeById(req.user.userId, req.params.id);
+    if (!exchange) return res.status(404).json({ error: 'Exchange not found' });
+    res.json({
+      name: exchange.name,
+      type: exchange.type,
+      api_key_length: exchange.api_key.length,
+      api_secret_length: exchange.api_secret.length,
+      passphrase_length: exchange.passphrase.length
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 db.initDB()
   .then(() => app.listen(PORT, () => console.log(`Server running on port ${PORT}`)))
   .catch(e => { console.error('DB init failed:', e.message); process.exit(1); });

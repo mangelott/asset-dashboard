@@ -107,7 +107,9 @@ async function getExchangeById(userId, id) {
   );
   if (!rows[0]) return null;
   const ex = rows[0];
-  return { ...ex, api_key: decrypt(ex.api_key), api_secret: decrypt(ex.api_secret), passphrase: decrypt(ex.passphrase) };
+  const decrypted = { ...ex, api_key: decrypt(ex.api_key), api_secret: decrypt(ex.api_secret), passphrase: decrypt(ex.passphrase) };
+  console.log(`[DB] getExchangeById ${ex.name} (${ex.type}): api_key len=${decrypted.api_key.length} secret len=${decrypted.api_secret.length}`);
+  return decrypted;
 }
 
 async function deleteExchange(userId, id) {
