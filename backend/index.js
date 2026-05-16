@@ -12,6 +12,7 @@ const { getBalances: getCoinbaseBalances, getPositions: getCoinbasePositions, ge
 const { getBalances: getKrakenBalances, getPositions: getKrakenPositions, getSpotPositions: getKrakenSpotPositions } = require('./adapters/kraken');
 const { getBalances: getOkxBalances, getPositions: getOkxPositions, getSpotPositions: getOkxSpotPositions } = require('./adapters/okx');
 const { getBalances: getWalletBalances, getPositions: getWalletPositions, getSpotPositions: getWalletSpotPositions } = require('./adapters/wallet_eth');
+const { getBalances: getT212Balances, getPositions: getT212Positions, getSpotPositions: getT212SpotPositions } = require('./adapters/trading212');
 const db = require('./database');
 
 const app = express();
@@ -27,13 +28,15 @@ const ADAPTERS = {
   coinbase: { getBalances: getCoinbaseBalances, getPositions: getCoinbasePositions, getSpotPositions: getCoinbaseSpotPositions },
   kraken: { getBalances: getKrakenBalances, getPositions: getKrakenPositions, getSpotPositions: getKrakenSpotPositions },
   okx: { getBalances: getOkxBalances, getPositions: getOkxPositions, getSpotPositions: getOkxSpotPositions },
-  wallet_eth: { getBalances: getWalletBalances, getPositions: getWalletPositions, getSpotPositions: getWalletSpotPositions }
+  wallet_eth: { getBalances: getWalletBalances, getPositions: getWalletPositions, getSpotPositions: getWalletSpotPositions },
+  trading212: { getBalances: getT212Balances, getPositions: getT212Positions, getSpotPositions: getT212SpotPositions }
 };
 
 // ─── Helpers ──────────────────────────────────────────────
 async function fetchExchangeData(exchange) {
   const adapter = ADAPTERS[exchange.type];
   if (!adapter) throw new Error(`Adapter not found: ${exchange.type}`);
+  if (exchange.type === 'trading212') return adapter.getBalances(exchange.api_key);
   if (exchange.type === 'wallet_eth') return adapter.getBalances(exchange.api_key, exchange.api_secret);
   if (exchange.type === 'okx') return adapter.getBalances(exchange.api_key, exchange.api_secret, exchange.passphrase);
   return adapter.getBalances(exchange.api_key, exchange.api_secret);
@@ -42,6 +45,7 @@ async function fetchExchangeData(exchange) {
 async function fetchExchangePositions(exchange) {
   const adapter = ADAPTERS[exchange.type];
   if (!adapter) return [];
+  if (exchange.type === 'trading212') return adapter.getPositions();
   if (exchange.type === 'okx') return adapter.getPositions(exchange.api_key, exchange.api_secret, exchange.passphrase);
   return adapter.getPositions(exchange.api_key, exchange.api_secret);
 }
@@ -49,6 +53,7 @@ async function fetchExchangePositions(exchange) {
 async function fetchExchangeSpotPositions(exchange) {
   const adapter = ADAPTERS[exchange.type];
   if (!adapter?.getSpotPositions) return [];
+  if (exchange.type === 'trading212') return adapter.getSpotPositions(exchange.api_key);
   if (exchange.type === 'okx') return adapter.getSpotPositions(exchange.api_key, exchange.api_secret, exchange.passphrase);
   return adapter.getSpotPositions(exchange.api_key, exchange.api_secret);
 }

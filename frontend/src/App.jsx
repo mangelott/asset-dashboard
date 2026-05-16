@@ -17,6 +17,7 @@ const EXCHANGE_TYPES = {
   kraken: { label: 'Kraken', color: '#5741d9' },
   okx: { label: 'OKX', color: '#e6f0ff' },
   wallet_eth: { label: 'Wallet ETH', color: '#627eea' },
+  trading212: { label: 'Trading 212', color: '#00c040' },
   global: { label: 'Global', color: '#6366f1' }
 }
 
@@ -264,6 +265,7 @@ function SettingsModal({ onClose, onUpdate }) {
                 <option value="kraken">Kraken</option>
                 <option value="okx">OKX</option>
                 <option value="wallet_eth">Ethereum Wallet</option>
+                <option value="trading212">Trading 212</option>
               </select>
             </div>
 
@@ -278,6 +280,11 @@ function SettingsModal({ onClose, onUpdate }) {
                   <input placeholder="Paste your Etherscan API Key here" value={form.apiSecret} onChange={e => setForm({ ...form, apiSecret: e.target.value })} />
                 </div>
               </>
+            ) : form.type === 'trading212' ? (
+              <div className="form-group full">
+                <label>API Key <span style={{ color: '#475569', fontWeight: 400 }}>(Settings → API in the Trading 212 app)</span></label>
+                <input placeholder={editing ? 'Leave blank to keep current' : 'Paste your Trading 212 API Key here'} value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} />
+              </div>
             ) : (
               <>
                 <div className="form-group full">
