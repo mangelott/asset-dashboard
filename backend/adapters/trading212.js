@@ -2,9 +2,16 @@ const axios = require('axios');
 
 const BASE_URL = 'https://live.trading212.com/api/v0';
 
-async function request(apiKey, path) {
+function buildAuthHeader(apiKey, apiSecret) {
+  if (apiSecret) {
+    return 'Basic ' + Buffer.from(`${apiKey}:${apiSecret}`).toString('base64');
+  }
+  return apiKey;
+}
+
+async function request(apiKey, apiSecret, path) {
   const response = await axios.get(`${BASE_URL}${path}`, {
-    headers: { Authorization: apiKey },
+    headers: { Authorization: buildAuthHeader(apiKey, apiSecret) },
     timeout: 10000
   });
   return response.data;
@@ -15,9 +22,9 @@ function parseTicker(ticker) {
   return (ticker || '').replace(/(_US)?_EQ$/, '').replace(/_[A-Z]+$/, '') || ticker;
 }
 
-async function getBalances(apiKey) {
+async function getBalances(apiKey, apiSecret) {
   try {
-    const summary = await request(apiKey, '/equity/account/summary');
+    const summary = await request(apiKey, apiSecret, '/equity/account/summary');
     const totalValue = parseFloat(summary.totalValue || 0);
     const cashFree = parseFloat(summary.cash?.availableToTrade || 0);
     const cashInPies = parseFloat(summary.cash?.inPies || 0);
@@ -69,9 +76,9 @@ async function getPositions() {
   return [];
 }
 
-async function getSpotPositions(apiKey) {
+async function getSpotPositions(apiKey, apiSecret) {
   try {
-    const positions = await request(apiKey, '/equity/positions');
+    const positions = await request(apiKey, apiSecret, '/equity/positions');
     if (!Array.isArray(positions)) return [];
 
     return positions

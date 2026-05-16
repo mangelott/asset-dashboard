@@ -36,7 +36,7 @@ const ADAPTERS = {
 async function fetchExchangeData(exchange) {
   const adapter = ADAPTERS[exchange.type];
   if (!adapter) throw new Error(`Adapter not found: ${exchange.type}`);
-  if (exchange.type === 'trading212') return adapter.getBalances(exchange.api_key);
+  if (exchange.type === 'trading212') return adapter.getBalances(exchange.api_key, exchange.api_secret);
   if (exchange.type === 'wallet_eth') return adapter.getBalances(exchange.api_key, exchange.api_secret);
   if (exchange.type === 'okx') return adapter.getBalances(exchange.api_key, exchange.api_secret, exchange.passphrase);
   return adapter.getBalances(exchange.api_key, exchange.api_secret);
@@ -53,7 +53,7 @@ async function fetchExchangePositions(exchange) {
 async function fetchExchangeSpotPositions(exchange) {
   const adapter = ADAPTERS[exchange.type];
   if (!adapter?.getSpotPositions) return [];
-  if (exchange.type === 'trading212') return adapter.getSpotPositions(exchange.api_key);
+  if (exchange.type === 'trading212') return adapter.getSpotPositions(exchange.api_key, exchange.api_secret);
   if (exchange.type === 'okx') return adapter.getSpotPositions(exchange.api_key, exchange.api_secret, exchange.passphrase);
   return adapter.getSpotPositions(exchange.api_key, exchange.api_secret);
 }

@@ -281,10 +281,16 @@ function SettingsModal({ onClose, onUpdate }) {
                 </div>
               </>
             ) : form.type === 'trading212' ? (
-              <div className="form-group full">
-                <label>API Key <span style={{ color: '#475569', fontWeight: 400 }}>(Settings → API in the Trading 212 app)</span></label>
-                <input placeholder={editing ? 'Leave blank to keep current' : 'Paste your Trading 212 API Key here'} value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} />
-              </div>
+              <>
+                <div className="form-group full">
+                  <label>API Key <span style={{ color: '#475569', fontWeight: 400 }}>(Settings → API in the Trading 212 app)</span></label>
+                  <input placeholder={editing ? 'Leave blank to keep current' : 'Paste your Trading 212 API Key here'} value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} />
+                </div>
+                <div className="form-group full">
+                  <label>API Secret <span style={{ color: '#475569', fontWeight: 400 }}>(Settings → API in the Trading 212 app)</span></label>
+                  <input type="password" placeholder={editing ? 'Leave blank to keep current' : 'Paste your Trading 212 API Secret here'} value={form.apiSecret} onChange={e => setForm({ ...form, apiSecret: e.target.value })} />
+                </div>
+              </>
             ) : (
               <>
                 <div className="form-group full">
