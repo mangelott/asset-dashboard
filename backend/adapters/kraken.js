@@ -114,22 +114,84 @@ async function getPositions(apiKey, secret) {
 }
 
 const KRAKEN_STABLECOINS = new Set(['USD', 'USDT', 'USDC', 'DAI', 'EUR', 'GBP', 'ZUSD', 'ZEUR', 'ZGBP']);
+const KRAKEN_QUOTE_SUFFIXES = ['ZUSD', 'ZEUR', 'ZGBP', 'XXBT', 'XBT', 'USD', 'EUR', 'GBP'];
+
+function parseKrakenPairBase(pair) {
+  let base = pair;
+  for (const q of KRAKEN_QUOTE_SUFFIXES) {
+    if (base.endsWith(q)) { base = base.slice(0, -q.length); break; }
+  }
+  // Remove single leading X or Z prefix (Kraken convention)
+  return base.replace(/^[XZ](?=[A-Z])/, '');
+}
+
+async function fetchKrakenTradesHistory(apiKey, secret) {
+  const allTrades = {};
+  let offset = 0;
+  // Fetch up to 5 pages (250 trades)
+  for (let page = 0; page < 5; page++) {
+    try {
+      const data = await request(apiKey, secret, '/0/private/TradesHistory', { ofs: offset });
+      const trades = data.trades || {};
+      const keys = Object.keys(trades);
+      if (!keys.length) break;
+      keys.forEach(k => { allTrades[k] = trades[k]; });
+      if (keys.length < 50) break;
+      offset += 50;
+    } catch (e) {
+      console.error('Kraken TradesHistory error:', e.message);
+      break;
+    }
+  }
+  return allTrades;
+}
 
 async function getSpotPositions(apiKey, secret) {
-  const { balances } = await getBalances(apiKey, secret);
-  return balances
-    .filter(b => !KRAKEN_STABLECOINS.has(b.asset) && b.valueUsdt >= 1)
-    .map(b => ({
-      asset: b.asset,
-      quantity: parseFloat(b.free) + parseFloat(b.locked),
-      currentPrice: b.currentPrice,
-      valueUsdt: b.valueUsdt,
-      avgEntryPrice: 0,
-      openValue: 0,
-      openDate: null,
-      pnl: 0,
-      pnlPct: 0
-    }));
+  const [{ balances }, allTrades] = await Promise.all([
+    getBalances(apiKey, secret),
+    fetchKrakenTradesHistory(apiKey, secret)
+  ]);
+
+  const holdings = balances.filter(b => !KRAKEN_STABLECOINS.has(b.asset) && b.valueUsdt >= 1);
+  if (!holdings.length) return [];
+
+  // Group trades by parsed base asset
+  const tradesByAsset = {};
+  Object.values(allTrades).forEach(t => {
+    const base = parseKrakenPairBase(t.pair);
+    if (!base) return;
+    if (!tradesByAsset[base]) tradesByAsset[base] = [];
+    tradesByAsset[base].push(t);
+  });
+
+  return holdings.map(b => {
+    const qty = parseFloat(b.free) + parseFloat(b.locked);
+    const trades = tradesByAsset[b.asset] || [];
+
+    let avgEntryPrice = 0, openDate = null, pnl = 0, pnlPct = 0, openValue = 0;
+
+    if (trades.length > 0) {
+      let totalQty = 0, totalCost = 0, earliestTime = Infinity;
+      trades.forEach(t => {
+        const tQty = parseFloat(t.vol);
+        const tPrice = parseFloat(t.price);
+        const tTime = parseFloat(t.time); // Unix seconds
+        if (t.type === 'buy') { totalQty += tQty; totalCost += tQty * tPrice; }
+        else { totalQty -= tQty; totalCost -= tQty * tPrice; }
+        if (tTime < earliestTime) earliestTime = tTime;
+      });
+
+      if (totalQty > 0) {
+        avgEntryPrice = totalCost / totalQty;
+        openDate = earliestTime < Infinity ? new Date(earliestTime * 1000).toISOString() : null;
+        openValue = avgEntryPrice * qty;
+        pnl = (b.currentPrice - avgEntryPrice) * qty;
+        pnlPct = ((b.currentPrice - avgEntryPrice) / avgEntryPrice) * 100;
+      }
+    }
+
+    return { asset: b.asset, quantity: qty, currentPrice: b.currentPrice, valueUsdt: b.valueUsdt, avgEntryPrice, openValue, openDate, pnl, pnlPct };
+  });
 }
 
 module.exports = { getBalances, getPositions, getSpotPositions };
