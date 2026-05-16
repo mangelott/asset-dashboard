@@ -502,7 +502,7 @@ function Dashboard({ exchange, isGlobal }) {
           <span className="badge">{positions.length} positions • ↻ 5s</span>
         </div>
         <div className="stat-card">
-          <span className="label">Spot P&L (unrealized)</span>
+          <span className="label">Spot P&L</span>
           <span className="value" style={{ color: totalSpotPnl >= 0 ? '#22c55e' : '#ef4444' }}>
             {totalSpotPnl !== 0 ? `${totalSpotPnl >= 0 ? '+' : ''}${totalSpotPnl.toFixed(2)}$` : '—'}
           </span>
