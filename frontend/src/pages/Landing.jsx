@@ -44,7 +44,7 @@ const STEPS = [
   }
 ]
 
-export default function Landing() {
+export default function Landing({ isLoggedIn = false }) {
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -64,8 +64,14 @@ export default function Landing() {
           </button>
 
           <div className={`lnav-links${menuOpen ? ' open' : ''}`}>
-            <button className="btn-ghost lnav-btn" onClick={() => { navigate('/login'); setMenuOpen(false) }}>Login</button>
-            <button className="btn-primary lnav-btn" onClick={() => { navigate('/register'); setMenuOpen(false) }}>Get Started</button>
+            {isLoggedIn ? (
+              <button className="btn-primary lnav-btn" onClick={() => { navigate('/dashboard'); setMenuOpen(false) }}>Go to Dashboard</button>
+            ) : (
+              <>
+                <button className="btn-ghost lnav-btn" onClick={() => { navigate('/login'); setMenuOpen(false) }}>Login</button>
+                <button className="btn-primary lnav-btn" onClick={() => { navigate('/register'); setMenuOpen(false) }}>Get Started</button>
+              </>
+            )}
           </div>
         </div>
       </nav>
@@ -81,8 +87,14 @@ export default function Landing() {
             Monitor real-time positions, P&L, and portfolio evolution — all from a single dashboard.
           </p>
           <div className="lhero-ctas">
-            <button className="btn-primary lbtn-lg" onClick={() => navigate('/register')}>Get Started Free</button>
-            <button className="btn-ghost lbtn-lg" onClick={() => navigate('/login')}>Sign In</button>
+            {isLoggedIn ? (
+              <button className="btn-primary lbtn-lg" onClick={() => navigate('/dashboard')}>Go to Dashboard</button>
+            ) : (
+              <>
+                <button className="btn-primary lbtn-lg" onClick={() => navigate('/register')}>Get Started Free</button>
+                <button className="btn-ghost lbtn-lg" onClick={() => navigate('/login')}>Sign In</button>
+              </>
+            )}
           </div>
           <div className="lhero-supported">
             <span className="lhero-supported-label">Supports</span>
@@ -136,7 +148,11 @@ export default function Landing() {
         <div className="lsection-inner lcta-inner">
           <h2 className="lcta-title">Start tracking today</h2>
           <p className="lcta-sub">Free to use. No credit card required.</p>
-          <button className="btn-primary lbtn-lg" onClick={() => navigate('/register')}>Get Started Free</button>
+          {isLoggedIn ? (
+            <button className="btn-primary lbtn-lg" onClick={() => navigate('/dashboard')}>Go to Dashboard</button>
+          ) : (
+            <button className="btn-primary lbtn-lg" onClick={() => navigate('/register')}>Get Started Free</button>
+          )}
         </div>
       </section>
 

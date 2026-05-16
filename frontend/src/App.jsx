@@ -660,7 +660,7 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/" element={token ? <Navigate to="/dashboard" replace /> : <Landing />} />
+      <Route path="/" element={<Landing isLoggedIn={!!token} />} />
       <Route path="/login" element={token ? <Navigate to="/dashboard" replace /> : <AuthPage onAuth={handleAuth} defaultMode="login" />} />
       <Route path="/register" element={token ? <Navigate to="/dashboard" replace /> : <AuthPage onAuth={handleAuth} defaultMode="register" />} />
       <Route path="/dashboard" element={token ? <DashboardPage onLogout={handleLogout} /> : <Navigate to="/login" replace />} />
