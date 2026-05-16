@@ -8,7 +8,7 @@ import 'react-calendar/dist/Calendar.css'
 import './App.css'
 import Landing from './pages/Landing'
 
-const API = 'https://asset-dashboard-production-425c.up.railway.app'
+const API = import.meta.env.VITE_API_URL || 'https://asset-dashboard-production-425c.up.railway.app'
 
 const EXCHANGE_TYPES = {
   binance: { label: 'Binance', color: '#f59e0b' },
