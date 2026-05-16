@@ -67,6 +67,53 @@ function PositionsTable({ positions, loading }) {
   )
 }
 
+// ─── Spot Positions Table ─────────────────────────────────
+function SpotPositionsTable({ positions, loading, isGlobal }) {
+  if (loading) return <div className="table-loading">Loading spot positions...</div>
+  if (!positions.length) return <div className="empty-state">No spot holdings</div>
+
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Asset</th>
+          {isGlobal && <th>Exchange</th>}
+          <th>Qty</th>
+          <th>Avg Entry</th>
+          <th>Current Price</th>
+          <th>Open Value</th>
+          <th>Current Value</th>
+          <th>P&L $</th>
+          <th>P&L %</th>
+          <th>Since</th>
+        </tr>
+      </thead>
+      <tbody>
+        {positions.sort((a, b) => b.valueUsdt - a.valueUsdt).map((p, i) => (
+          <tr key={i}>
+            <td><span className="asset-badge" style={{ color: '#6366f1', background: '#6366f122' }}>{p.asset}</span></td>
+            {isGlobal && <td style={{ fontSize: '12px', fontWeight: 600, color: '#94a3b8' }}>{p.exchange}</td>}
+            <td>{p.quantity.toFixed(6)}</td>
+            <td>{p.avgEntryPrice > 0 ? `$${p.avgEntryPrice.toFixed(4)}` : '—'}</td>
+            <td>{p.currentPrice > 0 ? `$${p.currentPrice.toFixed(4)}` : '—'}</td>
+            <td>{p.openValue > 0 ? `$${p.openValue.toFixed(2)}` : '—'}</td>
+            <td><strong>${p.valueUsdt.toFixed(2)}</strong></td>
+            <td style={{ color: p.pnl > 0 ? '#22c55e' : p.pnl < 0 ? '#ef4444' : '#64748b', fontWeight: p.pnl !== 0 ? 700 : 400 }}>
+              {p.pnl !== 0 ? `${p.pnl >= 0 ? '+' : ''}${p.pnl.toFixed(2)}$` : '—'}
+            </td>
+            <td style={{ color: p.pnlPct > 0 ? '#22c55e' : p.pnlPct < 0 ? '#ef4444' : '#64748b', fontWeight: p.pnlPct !== 0 ? 700 : 400 }}>
+              {p.pnlPct !== 0 ? `${p.pnlPct >= 0 ? '+' : ''}${p.pnlPct.toFixed(2)}%` : '—'}
+            </td>
+            <td style={{ fontSize: '12px', color: '#94a3b8' }}>
+              {p.openDate ? dayjs(p.openDate).format('DD MMM YYYY') : '—'}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
 // ─── Balances Table ───────────────────────────────────────
 function BalancesTable({ balances, totalUsdt, isGlobal, loading }) {
   if (loading) return <div className="table-loading">Loading balances...</div>
@@ -296,11 +343,13 @@ function SettingsModal({ onClose, onUpdate }) {
 function Dashboard({ exchange, isGlobal }) {
   const [balances, setBalances] = useState([])
   const [positions, setPositions] = useState([])
+  const [spotPositions, setSpotPositions] = useState([])
   const [snapshots, setSnapshots] = useState([])
   const [totalUsdt, setTotalUsdt] = useState(0)
   const [breakdown, setBreakdown] = useState({})
   const [loadingBalances, setLoadingBalances] = useState(true)
   const [loadingPositions, setLoadingPositions] = useState(true)
+  const [loadingSpot, setLoadingSpot] = useState(true)
   const [saving, setSaving] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
 
@@ -310,6 +359,7 @@ function Dashboard({ exchange, isGlobal }) {
 
   const accountUrl = isGlobal ? `${API}/api/global/account` : `${API}/api/exchange/${exchangeId}/account`
   const positionsUrl = isGlobal ? `${API}/api/global/positions` : `${API}/api/exchange/${exchangeId}/positions`
+  const spotPositionsUrl = isGlobal ? `${API}/api/global/spot-positions` : `${API}/api/exchange/${exchangeId}/spot-positions`
 
   async function fetchBalances() {
     try {
@@ -336,6 +386,17 @@ function Dashboard({ exchange, isGlobal }) {
     }
   }
 
+  async function fetchSpotPositions() {
+    try {
+      const res = await axios.get(spotPositionsUrl)
+      setSpotPositions(res.data || [])
+    } catch (e) {
+      console.error('Spot positions error:', e.message)
+    } finally {
+      setLoadingSpot(false)
+    }
+  }
+
   async function fetchSnapshots() {
     try {
       const res = await axios.get(`${API}/api/snapshots/${exchangeId}`)
@@ -355,14 +416,17 @@ function Dashboard({ exchange, isGlobal }) {
   useEffect(() => {
     fetchBalances()
     fetchPositions()
+    fetchSpotPositions()
     fetchSnapshots()
 
     const balancesInterval = setInterval(fetchBalances, 60000)
     const positionsInterval = setInterval(fetchPositions, 5000)
+    const spotInterval = setInterval(fetchSpotPositions, 60000)
 
     return () => {
       clearInterval(balancesInterval)
       clearInterval(positionsInterval)
+      clearInterval(spotInterval)
     }
   }, [exchangeId])
 
@@ -398,6 +462,7 @@ function Dashboard({ exchange, isGlobal }) {
     ? parseFloat(snapshots[snapshots.length - 1].total_value_usdt) - parseFloat(snapshots[snapshots.length - 2].total_value_usdt)
     : 0
   const totalFuturesPnl = positions.reduce((sum, p) => sum + p.pnl, 0)
+  const totalSpotPnl = spotPositions.reduce((sum, p) => sum + p.pnl, 0)
 
   return (
     <div>
@@ -422,6 +487,13 @@ function Dashboard({ exchange, isGlobal }) {
             {totalFuturesPnl >= 0 ? '+' : ''}{totalFuturesPnl.toFixed(2)}$
           </span>
           <span className="badge">{positions.length} positions • ↻ 5s</span>
+        </div>
+        <div className="stat-card">
+          <span className="label">Spot P&L (unrealized)</span>
+          <span className="value" style={{ color: totalSpotPnl >= 0 ? '#22c55e' : '#ef4444' }}>
+            {totalSpotPnl !== 0 ? `${totalSpotPnl >= 0 ? '+' : ''}${totalSpotPnl.toFixed(2)}$` : '—'}
+          </span>
+          <span className="badge">{spotPositions.length} holdings • ↻ 60s</span>
         </div>
         {isGlobal ? (
           <div className="stat-card">
@@ -494,6 +566,16 @@ function Dashboard({ exchange, isGlobal }) {
           </span>
         </div>
         <PositionsTable positions={positions} loading={loadingPositions} />
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <h2>Open Positions — Spot</h2>
+          <span className="tag" style={{ color, background: `${color}22` }}>
+            {spotPositions.length} holdings • ↻ 60s
+          </span>
+        </div>
+        <SpotPositionsTable positions={spotPositions} loading={loadingSpot} isGlobal={isGlobal} />
       </div>
 
       <div className="card">

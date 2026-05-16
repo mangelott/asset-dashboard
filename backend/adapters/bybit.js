@@ -38,23 +38,26 @@ async function getSpotPnl(apiKey, secret, coin, currentPrice) {
     const data = await request(apiKey, secret, '/v5/execution/list', {
       category: 'spot', symbol: `${coin}USDT`, limit: 100
     });
-    if (!data.result?.list?.length) return { avgEntryPrice: 0, pnl: 0, pnlPct: 0 };
+    if (!data.result?.list?.length) return { avgEntryPrice: 0, pnl: 0, pnlPct: 0, openDate: null };
 
-    let totalQty = 0, totalCost = 0;
+    let totalQty = 0, totalCost = 0, earliestTime = Infinity;
     data.result.list.forEach(t => {
       const qty = parseFloat(t.execQty);
       const price = parseFloat(t.execPrice);
+      const time = parseInt(t.execTime);
       if (t.side === 'Buy') { totalQty += qty; totalCost += qty * price; }
       else { totalQty -= qty; totalCost -= qty * price; }
+      if (time < earliestTime) earliestTime = time;
     });
 
-    if (totalQty <= 0) return { avgEntryPrice: 0, pnl: 0, pnlPct: 0 };
+    if (totalQty <= 0) return { avgEntryPrice: 0, pnl: 0, pnlPct: 0, openDate: null };
     const avgEntryPrice = totalCost / totalQty;
     const pnl = (currentPrice - avgEntryPrice) * totalQty;
     const pnlPct = ((currentPrice - avgEntryPrice) / avgEntryPrice) * 100;
-    return { avgEntryPrice, pnl, pnlPct };
+    const openDate = earliestTime < Infinity ? new Date(earliestTime).toISOString() : null;
+    return { avgEntryPrice, pnl, pnlPct, openDate };
   } catch (e) {
-    return { avgEntryPrice: 0, pnl: 0, pnlPct: 0 };
+    return { avgEntryPrice: 0, pnl: 0, pnlPct: 0, openDate: null };
   }
 }
 
@@ -136,4 +139,33 @@ async function getPositions(apiKey, secret) {
     });
 }
 
-module.exports = { getBalances, getPositions };
+const BYBIT_STABLECOINS = new Set(['USDT', 'USDC', 'DAI', 'BUSD', 'USDD']);
+
+async function getSpotPositions(apiKey, secret) {
+  let data = await request(apiKey, secret, '/v5/account/wallet-balance', { accountType: 'UNIFIED' });
+  if (!data.result?.list?.length) {
+    data = await request(apiKey, secret, '/v5/account/wallet-balance', { accountType: 'CONTRACT' });
+  }
+  if (!data.result?.list?.length) return [];
+
+  const account = data.result.list[0];
+  const coins = (account.coin || []).filter(c =>
+    parseFloat(c.equity) > 0 && !BYBIT_STABLECOINS.has(c.coin)
+  );
+
+  const positions = await Promise.all(coins.map(async c => {
+    const qty = parseFloat(c.equity);
+    const valueUsdt = parseFloat(c.usdValue || 0);
+    if (valueUsdt < 1) return null;
+    const currentPrice = qty > 0 ? valueUsdt / qty : 0;
+
+    const { avgEntryPrice, pnl, pnlPct, openDate } = await getSpotPnl(apiKey, secret, c.coin, currentPrice);
+    const openValue = avgEntryPrice > 0 ? avgEntryPrice * qty : 0;
+
+    return { asset: c.coin, quantity: qty, currentPrice, valueUsdt, avgEntryPrice, openValue, openDate, pnl, pnlPct };
+  }));
+
+  return positions.filter(Boolean);
+}
+
+module.exports = { getBalances, getPositions, getSpotPositions };

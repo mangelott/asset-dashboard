@@ -79,4 +79,23 @@ async function getPositions() {
   return [];
 }
 
-module.exports = { getBalances, getPositions };
+const CB_STABLECOINS = new Set(['USD', 'USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP']);
+
+async function getSpotPositions(apiKey, secret) {
+  const { balances } = await getBalances(apiKey, secret);
+  return balances
+    .filter(b => !CB_STABLECOINS.has(b.asset) && b.valueUsdt >= 1)
+    .map(b => ({
+      asset: b.asset,
+      quantity: parseFloat(b.free) + parseFloat(b.locked),
+      currentPrice: b.currentPrice,
+      valueUsdt: b.valueUsdt,
+      avgEntryPrice: 0,
+      openValue: 0,
+      openDate: null,
+      pnl: 0,
+      pnlPct: 0
+    }));
+}
+
+module.exports = { getBalances, getPositions, getSpotPositions };

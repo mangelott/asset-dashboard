@@ -124,4 +124,23 @@ async function getPositions() {
   return [];
 }
 
-module.exports = { getBalances, getPositions };
+const ETH_STABLECOINS = new Set(['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'FRAX', 'LUSD', 'GUSD']);
+
+async function getSpotPositions(address, apiKey) {
+  const { balances } = await getBalances(address, apiKey);
+  return balances
+    .filter(b => !ETH_STABLECOINS.has(b.asset) && b.valueUsdt >= 1)
+    .map(b => ({
+      asset: b.asset,
+      quantity: parseFloat(b.free) + parseFloat(b.locked),
+      currentPrice: b.currentPrice,
+      valueUsdt: b.valueUsdt,
+      avgEntryPrice: 0,
+      openValue: 0,
+      openDate: null,
+      pnl: 0,
+      pnlPct: 0
+    }));
+}
+
+module.exports = { getBalances, getPositions, getSpotPositions };

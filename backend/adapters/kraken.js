@@ -113,4 +113,23 @@ async function getPositions(apiKey, secret) {
   }
 }
 
-module.exports = { getBalances, getPositions };
+const KRAKEN_STABLECOINS = new Set(['USD', 'USDT', 'USDC', 'DAI', 'EUR', 'GBP', 'ZUSD', 'ZEUR', 'ZGBP']);
+
+async function getSpotPositions(apiKey, secret) {
+  const { balances } = await getBalances(apiKey, secret);
+  return balances
+    .filter(b => !KRAKEN_STABLECOINS.has(b.asset) && b.valueUsdt >= 1)
+    .map(b => ({
+      asset: b.asset,
+      quantity: parseFloat(b.free) + parseFloat(b.locked),
+      currentPrice: b.currentPrice,
+      valueUsdt: b.valueUsdt,
+      avgEntryPrice: 0,
+      openValue: 0,
+      openDate: null,
+      pnl: 0,
+      pnlPct: 0
+    }));
+}
+
+module.exports = { getBalances, getPositions, getSpotPositions };

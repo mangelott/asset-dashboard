@@ -98,4 +98,46 @@ async function getPositions(apiKey, secret, passphrase) {
   }
 }
 
-module.exports = { getBalances, getPositions };
+const OKX_STABLECOINS = new Set(['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP']);
+
+async function getSpotPositions(apiKey, secret, passphrase) {
+  const { balances } = await getBalances(apiKey, secret, passphrase);
+  const holdings = balances.filter(b => !OKX_STABLECOINS.has(b.asset) && b.valueUsdt >= 1);
+
+  const positions = await Promise.all(holdings.map(async b => {
+    const qty = parseFloat(b.free) + parseFloat(b.locked);
+    let avgEntryPrice = 0, openDate = null, pnl = 0, pnlPct = 0, openValue = 0;
+
+    try {
+      const fills = await request(apiKey, secret, passphrase, 'GET', '/api/v5/trade/fills', {
+        instType: 'SPOT', instId: `${b.asset}-USDT`, limit: '100'
+      });
+
+      if (fills.length > 0) {
+        let totalQty = 0, totalCost = 0, earliestTime = Infinity;
+        fills.forEach(f => {
+          const fQty = parseFloat(f.fillSz);
+          const fPrice = parseFloat(f.fillPx);
+          const fTime = parseInt(f.ts);
+          if (f.side === 'buy') { totalQty += fQty; totalCost += fQty * fPrice; }
+          else { totalQty -= fQty; totalCost -= fQty * fPrice; }
+          if (fTime < earliestTime) earliestTime = fTime;
+        });
+
+        if (totalQty > 0) {
+          avgEntryPrice = totalCost / totalQty;
+          openDate = earliestTime < Infinity ? new Date(earliestTime).toISOString() : null;
+          openValue = avgEntryPrice * qty;
+          pnl = (b.currentPrice - avgEntryPrice) * qty;
+          pnlPct = ((b.currentPrice - avgEntryPrice) / avgEntryPrice) * 100;
+        }
+      }
+    } catch (e) { /* fills unavailable */ }
+
+    return { asset: b.asset, quantity: qty, currentPrice: b.currentPrice, valueUsdt: b.valueUsdt, avgEntryPrice, openValue, openDate, pnl, pnlPct };
+  }));
+
+  return positions.filter(Boolean);
+}
+
+module.exports = { getBalances, getPositions, getSpotPositions };

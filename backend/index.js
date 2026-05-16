@@ -6,12 +6,12 @@ const cors = require('cors');
 const cron = require('node-cron');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const { getBalances: getBinanceBalances, getFuturesPositions: getBinancePositions } = require('./adapters/binance');
-const { getBalances: getBybitBalances, getPositions: getBybitPositions } = require('./adapters/bybit');
-const { getBalances: getCoinbaseBalances, getPositions: getCoinbasePositions } = require('./adapters/coinbase');
-const { getBalances: getKrakenBalances, getPositions: getKrakenPositions } = require('./adapters/kraken');
-const { getBalances: getOkxBalances, getPositions: getOkxPositions } = require('./adapters/okx');
-const { getBalances: getWalletBalances, getPositions: getWalletPositions } = require('./adapters/wallet_eth');
+const { getBalances: getBinanceBalances, getFuturesPositions: getBinancePositions, getSpotPositions: getBinanceSpotPositions } = require('./adapters/binance');
+const { getBalances: getBybitBalances, getPositions: getBybitPositions, getSpotPositions: getBybitSpotPositions } = require('./adapters/bybit');
+const { getBalances: getCoinbaseBalances, getPositions: getCoinbasePositions, getSpotPositions: getCoinbaseSpotPositions } = require('./adapters/coinbase');
+const { getBalances: getKrakenBalances, getPositions: getKrakenPositions, getSpotPositions: getKrakenSpotPositions } = require('./adapters/kraken');
+const { getBalances: getOkxBalances, getPositions: getOkxPositions, getSpotPositions: getOkxSpotPositions } = require('./adapters/okx');
+const { getBalances: getWalletBalances, getPositions: getWalletPositions, getSpotPositions: getWalletSpotPositions } = require('./adapters/wallet_eth');
 const db = require('./database');
 
 const app = express();
@@ -22,12 +22,12 @@ app.use(express.json());
 
 // ─── Adapter Registry ─────────────────────────────────────
 const ADAPTERS = {
-  binance: { getBalances: getBinanceBalances, getPositions: getBinancePositions },
-  bybit: { getBalances: getBybitBalances, getPositions: getBybitPositions },
-  coinbase: { getBalances: getCoinbaseBalances, getPositions: getCoinbasePositions },
-  kraken: { getBalances: getKrakenBalances, getPositions: getKrakenPositions },
-  okx: { getBalances: getOkxBalances, getPositions: getOkxPositions },
-  wallet_eth: { getBalances: getWalletBalances, getPositions: getWalletPositions }
+  binance: { getBalances: getBinanceBalances, getPositions: getBinancePositions, getSpotPositions: getBinanceSpotPositions },
+  bybit: { getBalances: getBybitBalances, getPositions: getBybitPositions, getSpotPositions: getBybitSpotPositions },
+  coinbase: { getBalances: getCoinbaseBalances, getPositions: getCoinbasePositions, getSpotPositions: getCoinbaseSpotPositions },
+  kraken: { getBalances: getKrakenBalances, getPositions: getKrakenPositions, getSpotPositions: getKrakenSpotPositions },
+  okx: { getBalances: getOkxBalances, getPositions: getOkxPositions, getSpotPositions: getOkxSpotPositions },
+  wallet_eth: { getBalances: getWalletBalances, getPositions: getWalletPositions, getSpotPositions: getWalletSpotPositions }
 };
 
 // ─── Helpers ──────────────────────────────────────────────
@@ -44,6 +44,13 @@ async function fetchExchangePositions(exchange) {
   if (!adapter) return [];
   if (exchange.type === 'okx') return adapter.getPositions(exchange.api_key, exchange.api_secret, exchange.passphrase);
   return adapter.getPositions(exchange.api_key, exchange.api_secret);
+}
+
+async function fetchExchangeSpotPositions(exchange) {
+  const adapter = ADAPTERS[exchange.type];
+  if (!adapter?.getSpotPositions) return [];
+  if (exchange.type === 'okx') return adapter.getSpotPositions(exchange.api_key, exchange.api_secret, exchange.passphrase);
+  return adapter.getSpotPositions(exchange.api_key, exchange.api_secret);
 }
 
 // ─── Auth Middleware ──────────────────────────────────────
@@ -157,6 +164,33 @@ app.get('/api/global/positions', auth, async (req, res) => {
     results.forEach((result, i) => {
       if (result.status === 'rejected') {
         console.error(`[${exchanges[i]?.name}] positions error:`, result.reason?.message);
+      } else {
+        allPositions = [...allPositions, ...result.value.map(p => ({ ...p, exchange: exchanges[i].name }))];
+      }
+    });
+
+    res.json(allPositions);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/exchange/:id/spot-positions', auth, async (req, res) => {
+  try {
+    const exchange = await db.getExchangeById(req.user.userId, req.params.id);
+    if (!exchange) return res.status(404).json({ error: 'Exchange not found' });
+    res.json(await fetchExchangeSpotPositions(exchange));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/global/spot-positions', auth, async (req, res) => {
+  try {
+    const list = await db.getAllExchanges(req.user.userId);
+    const exchanges = await Promise.all(list.map(e => db.getExchangeById(req.user.userId, e.id)));
+    const results = await Promise.allSettled(exchanges.map(fetchExchangeSpotPositions));
+
+    let allPositions = [];
+    results.forEach((result, i) => {
+      if (result.status === 'rejected') {
+        console.error(`[${exchanges[i]?.name}] spot-positions error:`, result.reason?.message);
       } else {
         allPositions = [...allPositions, ...result.value.map(p => ({ ...p, exchange: exchanges[i].name }))];
       }

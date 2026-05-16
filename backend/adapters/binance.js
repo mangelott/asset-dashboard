@@ -127,4 +127,58 @@ async function getBalances(apiKey, secret) {
   };
 }
 
-module.exports = { getBalances, getFuturesPositions };
+const STABLECOINS = new Set(['USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'FDUSD', 'USDP', 'USDD']);
+
+async function getSpotPositions(apiKey, secret) {
+  const [accountData, pricesData] = await Promise.all([
+    request(BASE_URL, apiKey, secret, '/api/v3/account'),
+    axios.get(`${BASE_URL}/api/v3/ticker/price`, { timeout: 10000 })
+  ]);
+
+  const priceMap = {};
+  pricesData.data.forEach(p => { priceMap[p.symbol] = parseFloat(p.price); });
+
+  const holdings = accountData.balances.filter(b => {
+    const amount = parseFloat(b.free) + parseFloat(b.locked);
+    return amount > 0 && !STABLECOINS.has(b.asset);
+  });
+
+  const positions = await Promise.all(holdings.map(async b => {
+    const qty = parseFloat(b.free) + parseFloat(b.locked);
+    const currentPrice = priceMap[`${b.asset}USDT`] || priceMap[`${b.asset}USDC`] || 0;
+    const valueUsdt = qty * currentPrice;
+    if (valueUsdt < 1) return null;
+
+    let avgEntryPrice = 0, openDate = null, pnl = 0, pnlPct = 0, openValue = 0;
+
+    try {
+      const symbol = priceMap[`${b.asset}USDT`] ? `${b.asset}USDT` : `${b.asset}USDC`;
+      const trades = await request(BASE_URL, apiKey, secret, '/api/v3/myTrades', { symbol, limit: 1000 });
+
+      if (trades.length > 0) {
+        let totalQty = 0, totalCost = 0, earliestTime = Infinity;
+        trades.forEach(t => {
+          const tQty = parseFloat(t.qty);
+          const tPrice = parseFloat(t.price);
+          if (t.isBuyer) { totalQty += tQty; totalCost += tQty * tPrice; }
+          else { totalQty -= tQty; totalCost -= tQty * tPrice; }
+          if (t.time < earliestTime) earliestTime = t.time;
+        });
+
+        if (totalQty > 0) {
+          avgEntryPrice = totalCost / totalQty;
+          openDate = earliestTime < Infinity ? new Date(earliestTime).toISOString() : null;
+          openValue = avgEntryPrice * qty;
+          pnl = (currentPrice - avgEntryPrice) * qty;
+          pnlPct = ((currentPrice - avgEntryPrice) / avgEntryPrice) * 100;
+        }
+      }
+    } catch (e) { /* trade history unavailable */ }
+
+    return { asset: b.asset, quantity: qty, currentPrice, valueUsdt, avgEntryPrice, openValue, openDate, pnl, pnlPct };
+  }));
+
+  return positions.filter(Boolean);
+}
+
+module.exports = { getBalances, getFuturesPositions, getSpotPositions };
