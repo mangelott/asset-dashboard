@@ -71,7 +71,7 @@ async function getBalances(apiKey, apiSecret) {
         locked: '0',
         valueUsdt: investedValue,
         currentPrice: 1,
-        avgEntryPrice: totalCost > 0 ? totalCost / investedValue : 1,
+        avgEntryPrice: 0,
         pnl: unrealizedPnl,
         pnlPct,
         type: 'Spot'

@@ -51,15 +51,15 @@ function PositionsTable({ positions, loading }) {
               {p.side === 'Buy' ? '▲ Long' : '▼ Short'}
             </td>
             <td>{p.size}</td>
-            <td>${p.entryPrice.toFixed(4)}</td>
-            <td>${p.markPrice.toFixed(4)}</td>
-            <td style={{ color: p.pnl >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>
-              {p.pnl >= 0 ? '+' : ''}{p.pnl.toFixed(2)}$
+            <td>${(p.entryPrice ?? 0).toFixed(4)}</td>
+            <td>${(p.markPrice ?? 0).toFixed(4)}</td>
+            <td style={{ color: (p.pnl ?? 0) >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>
+              {(p.pnl ?? 0) >= 0 ? '+' : ''}{(p.pnl ?? 0).toFixed(2)}$
             </td>
-            <td style={{ color: p.pnlPct >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>
-              {p.pnlPct >= 0 ? '+' : ''}{p.pnlPct.toFixed(2)}%
+            <td style={{ color: (p.pnlPct ?? 0) >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>
+              {(p.pnlPct ?? 0) >= 0 ? '+' : ''}{(p.pnlPct ?? 0).toFixed(2)}%
             </td>
-            <td style={{ color: '#ef4444' }}>${p.liquidationPrice?.toFixed(2) || '—'}</td>
+            <td style={{ color: '#ef4444' }}>{p.liquidationPrice > 0 ? `$${p.liquidationPrice.toFixed(2)}` : '—'}</td>
             <td><span className="leverage-badge">{p.leverage}x</span></td>
           </tr>
         ))}
@@ -99,11 +99,11 @@ function SpotPositionsTable({ positions, loading, isGlobal }) {
             <td>{p.currentPrice > 0 ? `$${p.currentPrice.toFixed(4)}` : '—'}</td>
             <td>{p.openValue > 0 ? `$${p.openValue.toFixed(2)}` : '—'}</td>
             <td><strong>${p.valueUsdt.toFixed(2)}</strong></td>
-            <td style={{ color: p.pnl > 0 ? '#22c55e' : p.pnl < 0 ? '#ef4444' : '#64748b', fontWeight: p.pnl !== 0 ? 700 : 400 }}>
-              {p.pnl !== 0 ? `${p.pnl >= 0 ? '+' : ''}${p.pnl.toFixed(2)}$` : '—'}
+            <td style={{ color: (p.pnl ?? 0) > 0 ? '#22c55e' : (p.pnl ?? 0) < 0 ? '#ef4444' : '#64748b', fontWeight: (p.pnl ?? 0) !== 0 ? 700 : 400 }}>
+              {(p.pnl ?? 0) !== 0 ? `${(p.pnl ?? 0) >= 0 ? '+' : ''}${(p.pnl ?? 0).toFixed(2)}$` : '—'}
             </td>
-            <td style={{ color: p.pnlPct > 0 ? '#22c55e' : p.pnlPct < 0 ? '#ef4444' : '#64748b', fontWeight: p.pnlPct !== 0 ? 700 : 400 }}>
-              {p.pnlPct !== 0 ? `${p.pnlPct >= 0 ? '+' : ''}${p.pnlPct.toFixed(2)}%` : '—'}
+            <td style={{ color: (p.pnlPct ?? 0) > 0 ? '#22c55e' : (p.pnlPct ?? 0) < 0 ? '#ef4444' : '#64748b', fontWeight: (p.pnlPct ?? 0) !== 0 ? 700 : 400 }}>
+              {(p.pnlPct ?? 0) !== 0 ? `${(p.pnlPct ?? 0) >= 0 ? '+' : ''}${(p.pnlPct ?? 0).toFixed(2)}%` : '—'}
             </td>
             <td style={{ fontSize: '12px', color: '#94a3b8' }}>
               {p.openDate ? dayjs(p.openDate).format('DD MMM YYYY') : '—'}
@@ -151,13 +151,13 @@ function BalancesTable({ balances, totalUsdt, isGlobal, loading }) {
               {!isFutures && <td>{b.currentPrice > 0 ? `$${b.currentPrice.toFixed(4)}` : '—'}</td>}
               <td><strong>${b.valueUsdt.toFixed(2)}</strong></td>
               {!isFutures && (
-                <td style={{ color: b.pnl > 0 ? '#22c55e' : b.pnl < 0 ? '#ef4444' : '#64748b', fontWeight: b.pnl !== 0 ? 700 : 400 }}>
-                  {b.pnl !== 0 ? `${b.pnl >= 0 ? '+' : ''}${b.pnl.toFixed(2)}$` : '—'}
+                <td style={{ color: (b.pnl ?? 0) > 0 ? '#22c55e' : (b.pnl ?? 0) < 0 ? '#ef4444' : '#64748b', fontWeight: (b.pnl ?? 0) !== 0 ? 700 : 400 }}>
+                  {(b.pnl ?? 0) !== 0 ? `${(b.pnl ?? 0) >= 0 ? '+' : ''}${(b.pnl ?? 0).toFixed(2)}$` : '—'}
                 </td>
               )}
               {!isFutures && (
-                <td style={{ color: b.pnlPct > 0 ? '#22c55e' : b.pnlPct < 0 ? '#ef4444' : '#64748b', fontWeight: b.pnlPct !== 0 ? 700 : 400 }}>
-                  {b.pnlPct !== 0 ? `${b.pnlPct >= 0 ? '+' : ''}${b.pnlPct.toFixed(2)}%` : '—'}
+                <td style={{ color: (b.pnlPct ?? 0) > 0 ? '#22c55e' : (b.pnlPct ?? 0) < 0 ? '#ef4444' : '#64748b', fontWeight: (b.pnlPct ?? 0) !== 0 ? 700 : 400 }}>
+                  {(b.pnlPct ?? 0) !== 0 ? `${(b.pnlPct ?? 0) >= 0 ? '+' : ''}${(b.pnlPct ?? 0).toFixed(2)}%` : '—'}
                 </td>
               )}
               <td>
@@ -365,6 +365,7 @@ function Dashboard({ exchange, isGlobal }) {
   const [loadingSpot, setLoadingSpot] = useState(true)
   const [saving, setSaving] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
+  const [balanceError, setBalanceError] = useState(null)
 
   const exchangeId = isGlobal ? 'global' : exchange?.id
   const exchangeType = isGlobal ? 'global' : exchange?.type
@@ -381,8 +382,10 @@ function Dashboard({ exchange, isGlobal }) {
       setTotalUsdt(res.data.totalUsdt || 0)
       setBreakdown(res.data.breakdown || {})
       setLastUpdated(new Date())
+      setBalanceError(null)
     } catch (e) {
       console.error('Balance error:', e.message)
+      setBalanceError(e.response?.data?.error || e.message || 'Failed to load balances')
     } finally {
       setLoadingBalances(false)
     }
@@ -471,14 +474,23 @@ function Dashboard({ exchange, isGlobal }) {
   const firstValue = snapshots.length > 0 ? parseFloat(snapshots[0].total_value_usdt) : 0
   const totalPnl = totalUsdt - firstValue
   const totalPnlPct = firstValue > 0 ? ((totalPnl / firstValue) * 100).toFixed(2) : 0
-  const todayPnl = snapshots.length > 1
-    ? parseFloat(snapshots[snapshots.length - 1].total_value_usdt) - parseFloat(snapshots[snapshots.length - 2].total_value_usdt)
+  const today = new Date().toISOString().split('T')[0]
+  const lastSnapshot = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null
+  const prevSnapshot = snapshots.length > 1 ? snapshots[snapshots.length - 2] : null
+  const todayPnl = lastSnapshot && prevSnapshot
+    ? parseFloat(lastSnapshot.total_value_usdt) - parseFloat(prevSnapshot.total_value_usdt)
     : 0
-  const totalFuturesPnl = positions.reduce((sum, p) => sum + p.pnl, 0)
-  const totalSpotPnl = spotPositions.reduce((sum, p) => sum + p.pnl, 0)
+  const todayPnlLabel = lastSnapshot?.date === today ? 'vs yesterday' : lastSnapshot?.date ? `vs ${prevSnapshot?.date || '—'}` : 'no snapshots'
+  const totalFuturesPnl = positions.reduce((sum, p) => sum + (p.pnl ?? 0), 0)
+  const totalSpotPnl = spotPositions.reduce((sum, p) => sum + (p.pnl ?? 0), 0)
 
   return (
     <div>
+      {balanceError && (
+        <div className="error-banner">
+          Connection error: {balanceError}
+        </div>
+      )}
       <div className="stats">
         <div className="stat-card main" style={{ borderColor: `${color}33` }}>
           <span className="label">Total Value</span>
@@ -525,7 +537,7 @@ function Dashboard({ exchange, isGlobal }) {
             <span className="value" style={{ color: todayPnl >= 0 ? '#22c55e' : '#ef4444' }}>
               {todayPnl >= 0 ? '+' : ''}{todayPnl.toFixed(2)}$
             </span>
-            <span className="badge">vs yesterday</span>
+            <span className="badge">{todayPnlLabel}</span>
           </div>
         )}
       </div>
@@ -674,6 +686,10 @@ function DashboardPage({ onLogout }) {
       setExchanges(res.data)
       setRefreshKey(k => k + 1)
       if (res.data.length === 0) setShowSettings(true)
+      setActiveTab(tab => {
+        if (tab !== 'global' && !res.data.find(e => e.id === tab)) return 'global'
+        return tab
+      })
     } catch (e) { console.error(e) }
   }
 

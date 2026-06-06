@@ -35,10 +35,7 @@ async function request(apiKey, secret, path, data = {}) {
 
 async function getBalances(apiKey, secret) {
   try {
-    const [balanceData, tickerData] = await Promise.all([
-      request(apiKey, secret, '/0/private/Balance'),
-      axios.get(`${BASE_URL}/0/public/Ticker`, { timeout: 10000 })
-    ]);
+    const balanceData = await request(apiKey, secret, '/0/private/Balance');
 
     // Buscar preços
     const priceMap = {};

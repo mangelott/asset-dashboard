@@ -101,7 +101,7 @@ async function getFuturesPositions(apiKey, secret) {
       markPrice: parseFloat(p.markPrice),
       pnl: parseFloat(p.unRealizedProfit),
       pnlPct: parseFloat(p.entryPrice) > 0
-        ? ((parseFloat(p.markPrice) - parseFloat(p.entryPrice)) / parseFloat(p.entryPrice)) * 100
+        ? ((parseFloat(p.markPrice) - parseFloat(p.entryPrice)) / parseFloat(p.entryPrice)) * 100 * (parseFloat(p.positionAmt) > 0 ? 1 : -1)
         : 0,
       leverage: p.leverage,
       liquidationPrice: parseFloat(p.liquidationPrice)
