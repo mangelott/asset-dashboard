@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const axios = require('axios');
+const { computeRealizedPnl } = require('../utils/pnl');
 
 const BASE_URL = 'https://www.okx.com';
 
@@ -140,4 +141,31 @@ async function getSpotPositions(apiKey, secret, passphrase) {
   return positions.filter(Boolean);
 }
 
-module.exports = { getBalances, getPositions, getSpotPositions };
+// OKX only exposes fills per instrument, so coverage is limited to assets
+// currently (or recently, while still held) in the account.
+async function getTradeHistory(apiKey, secret, passphrase) {
+  const { balances } = await getBalances(apiKey, secret, passphrase);
+  const holdings = balances.filter(b => !OKX_STABLECOINS.has(b.asset));
+
+  const perAsset = await Promise.all(holdings.map(async b => {
+    try {
+      const fills = await request(apiKey, secret, passphrase, 'GET', '/api/v5/trade/fills', {
+        instType: 'SPOT', instId: `${b.asset}-USDT`, limit: '100'
+      });
+      const normalized = fills.map(f => ({
+        asset: b.asset,
+        side: f.side === 'buy' ? 'buy' : 'sell',
+        qty: parseFloat(f.fillSz),
+        price: parseFloat(f.fillPx),
+        date: new Date(parseInt(f.ts)).toISOString()
+      })).sort((a, c) => new Date(a.date) - new Date(c.date));
+      return computeRealizedPnl(normalized);
+    } catch (e) {
+      return [];
+    }
+  }));
+
+  return perAsset.flat().sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+module.exports = { getBalances, getPositions, getSpotPositions, getTradeHistory };

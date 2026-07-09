@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { computeRealizedPnl } = require('../utils/pnl');
 
 const BASE_URL = 'https://live.trading212.com/api/v0';
 
@@ -20,7 +21,7 @@ async function request(apiKey, apiSecret, path) {
 async function getUsdRate(currency) {
   if (currency === 'USD') return 1;
   try {
-    const res = await axios.get(`https://api.frankfurter.app/latest?from=${currency}&to=USD`, { timeout: 5000 });
+    const res = await axios.get(`https://api.frankfurter.dev/v1/latest?from=${currency}&to=USD`, { timeout: 5000 });
     return res.data?.rates?.USD || 1;
   } catch (e) {
     console.error(`Trading 212: failed to fetch ${currency}/USD rate`, e.message);
@@ -123,4 +124,60 @@ async function getSpotPositions(apiKey, apiSecret) {
   }
 }
 
-module.exports = { getBalances, getPositions, getSpotPositions };
+// Trading 212's order history endpoint is account-wide (not limited to
+// currently-held tickers), giving broad coverage like Kraken.
+async function getTradeHistory(apiKey, apiSecret) {
+  const summary = await request(apiKey, apiSecret, '/equity/account/summary');
+  const currency = summary.currency || 'USD';
+  const toUsd = await getUsdRate(currency);
+
+  let allItems = [];
+  let cursor = null;
+  for (let page = 0; page < 4; page++) {
+    try {
+      const path = cursor ? `/equity/history/orders?cursor=${cursor}&limit=50` : '/equity/history/orders?limit=50';
+      const res = await request(apiKey, apiSecret, path);
+      allItems = allItems.concat(res.items || []);
+      if (!res.nextPagePath) break;
+      const match = res.nextPagePath.match(/cursor=([^&]+)/);
+      cursor = match ? match[1] : null;
+      if (!cursor) break;
+    } catch (e) {
+      // First page failing means the request itself is broken (bad key, network) —
+      // surface it. A later page failing after some data was already fetched is tolerated.
+      if (page === 0) throw e;
+      break;
+    }
+  }
+
+  const byAsset = {};
+  allItems.forEach(item => {
+    const order = item.order || {};
+    if (order.status !== 'FILLED') return;
+    const ticker = parseTicker(order.ticker);
+    const qty = parseFloat(order.filledQuantity || 0);
+    const price = parseFloat(item.fill?.price || 0) * toUsd;
+    const date = order.createdAt || item.fill?.filledAt;
+    if (qty <= 0 || price <= 0 || !date) return;
+
+    const trade = {
+      asset: ticker,
+      side: order.side === 'BUY' ? 'buy' : 'sell',
+      qty,
+      price,
+      date: new Date(date).toISOString()
+    };
+    if (!byAsset[ticker]) byAsset[ticker] = [];
+    byAsset[ticker].push(trade);
+  });
+
+  let result = [];
+  Object.values(byAsset).forEach(trades => {
+    trades.sort((a, b) => new Date(a.date) - new Date(b.date));
+    result = result.concat(computeRealizedPnl(trades));
+  });
+
+  return result.sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+module.exports = { getBalances, getPositions, getSpotPositions, getTradeHistory };

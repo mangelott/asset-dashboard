@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const axios = require('axios');
 const qs = require('querystring');
+const { computeRealizedPnl } = require('../utils/pnl');
 
 const BASE_URL = 'https://api.kraken.com';
 
@@ -33,25 +34,33 @@ async function request(apiKey, secret, path, data = {}) {
   return response.data.result;
 }
 
+// Kraken's public Ticker endpoint rejects the ENTIRE batch if any single pair in it is
+// unknown. Legacy assets use the "ZUSD" suffix (XXBTZUSD, XETHZUSD) but newer listings
+// (SOL, ADA, AVAX, ...) use plain "USD" (SOLUSD) — mixing both in one request throws
+// "EQuery:Unknown asset pair" for the whole call, silently zeroing out every price.
+// Fetch each asset's price independently so one unknown pair can't poison the rest.
+async function fetchKrakenPrice(rawAsset) {
+  for (const suffix of ['ZUSD', 'USD']) {
+    try {
+      const res = await axios.get(`${BASE_URL}/0/public/Ticker?pair=${rawAsset}${suffix}`, { timeout: 10000 });
+      const result = res.data.result || {};
+      const key = Object.keys(result)[0];
+      if (key) return parseFloat(result[key].c[0]);
+    } catch (e) { /* try next suffix */ }
+  }
+  return 0;
+}
+
 async function getBalances(apiKey, secret) {
   try {
     const balanceData = await request(apiKey, secret, '/0/private/Balance');
 
     // Buscar preços
     const priceMap = {};
-    try {
-      const pairs = Object.keys(balanceData)
-        .filter(a => a !== 'ZUSD' && a !== 'USDT' && a !== 'USDC')
-        .map(a => `${a}ZUSD`)
-        .join(',');
-
-      if (pairs) {
-        const prices = await axios.get(`${BASE_URL}/0/public/Ticker?pair=${pairs}`, { timeout: 10000 });
-        Object.entries(prices.data.result || {}).forEach(([pair, data]) => {
-          priceMap[pair] = parseFloat(data.c[0]);
-        });
-      }
-    } catch (e) { }
+    const assetsToPrice = Object.keys(balanceData).filter(a => a !== 'ZUSD' && a !== 'USDT' && a !== 'USDC');
+    await Promise.all(assetsToPrice.map(async a => {
+      priceMap[`${a}ZUSD`] = await fetchKrakenPrice(a);
+    }));
 
     let totalUsdt = 0;
     const balances = Object.entries(balanceData)
@@ -66,7 +75,7 @@ async function getBalances(apiKey, secret) {
           valueUsdt = qty;
           currentPrice = 1;
         } else {
-          currentPrice = priceMap[`${asset}ZUSD`] || priceMap[`X${asset}ZUSD`] || 0;
+          currentPrice = priceMap[`${asset}ZUSD`] || 0;
           valueUsdt = qty * currentPrice;
         }
 
@@ -122,7 +131,7 @@ function parseKrakenPairBase(pair) {
   return base.replace(/^[XZ](?=[A-Z])/, '');
 }
 
-async function fetchKrakenTradesHistory(apiKey, secret) {
+async function fetchKrakenTradesHistory(apiKey, secret, strict = false) {
   const allTrades = {};
   let offset = 0;
   // Fetch up to 5 pages (250 trades)
@@ -137,6 +146,9 @@ async function fetchKrakenTradesHistory(apiKey, secret) {
       offset += 50;
     } catch (e) {
       console.error('Kraken TradesHistory error:', e.message);
+      // In strict mode, a first-page failure means the request itself is broken
+      // (bad key, network) — surface it instead of silently returning nothing.
+      if (strict && page === 0) throw e;
       break;
     }
   }
@@ -191,4 +203,33 @@ async function getSpotPositions(apiKey, secret) {
   });
 }
 
-module.exports = { getBalances, getPositions, getSpotPositions };
+// Kraken's TradesHistory is account-wide (not limited to currently-held
+// assets), so this gives the best coverage among all adapters.
+async function getTradeHistory(apiKey, secret) {
+  const allTrades = await fetchKrakenTradesHistory(apiKey, secret, true);
+
+  const byAsset = {};
+  Object.values(allTrades).forEach(t => {
+    const base = parseKrakenPairBase(t.pair);
+    if (!base) return;
+    const trade = {
+      asset: base,
+      side: t.type === 'buy' ? 'buy' : 'sell',
+      qty: parseFloat(t.vol),
+      price: parseFloat(t.price),
+      date: new Date(parseFloat(t.time) * 1000).toISOString()
+    };
+    if (!byAsset[base]) byAsset[base] = [];
+    byAsset[base].push(trade);
+  });
+
+  let result = [];
+  Object.values(byAsset).forEach(trades => {
+    trades.sort((a, b) => new Date(a.date) - new Date(b.date));
+    result = result.concat(computeRealizedPnl(trades));
+  });
+
+  return result.sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+module.exports = { getBalances, getPositions, getSpotPositions, getTradeHistory };

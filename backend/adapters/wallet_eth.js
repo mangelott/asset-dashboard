@@ -1,7 +1,8 @@
 const axios = require('axios');
 
 const MORALIS_BASE = 'https://deep-index.moralis.io/api/v2.2';
-const ETHERSCAN_BASE = 'https://api.etherscan.io/api';
+const ETHERSCAN_BASE = 'https://api.etherscan.io/v2/api';
+const ETHERSCAN_CHAIN_ID = 1; // Ethereum mainnet
 
 async function getBalances(address, apiKey) {
   try {
@@ -11,6 +12,7 @@ async function getBalances(address, apiKey) {
     // ETH balance via Etherscan
     const ethRes = await axios.get(ETHERSCAN_BASE, {
       params: {
+        chainid: ETHERSCAN_CHAIN_ID,
         module: 'account',
         action: 'balance',
         address,
@@ -19,6 +21,10 @@ async function getBalances(address, apiKey) {
       },
       timeout: 10000
     });
+
+    if (ethRes.data.status !== '1') {
+      throw new Error(ethRes.data.result || ethRes.data.message || 'Etherscan error');
+    }
 
     const ethBalance = parseFloat(ethRes.data.result) / 1e18;
 
@@ -45,6 +51,7 @@ async function getBalances(address, apiKey) {
     // ERC-20 tokens via Etherscan
     const tokensRes = await axios.get(ETHERSCAN_BASE, {
       params: {
+        chainid: ETHERSCAN_CHAIN_ID,
         module: 'account',
         action: 'tokentx',
         address,
@@ -72,6 +79,7 @@ async function getBalances(address, apiKey) {
         try {
           const balRes = await axios.get(ETHERSCAN_BASE, {
             params: {
+              chainid: ETHERSCAN_CHAIN_ID,
               module: 'account',
               action: 'tokenbalance',
               contractaddress: token.contractAddress,
@@ -143,4 +151,81 @@ async function getSpotPositions(address, apiKey) {
     }));
 }
 
-module.exports = { getBalances, getPositions, getSpotPositions };
+// A wallet has no "buy/sell" concept — this returns raw on-chain transfers
+// (in/out) instead, with no P&L (cost basis isn't well-defined for a transfer).
+async function getTradeHistory(address, apiKey) {
+  const addrLower = address.toLowerCase();
+  const transfers = [];
+
+  const ethTxRes = await axios.get(ETHERSCAN_BASE, {
+    params: {
+      chainid: ETHERSCAN_CHAIN_ID,
+      module: 'account',
+      action: 'txlist',
+      address,
+      startblock: 0,
+      endblock: 99999999,
+      sort: 'desc',
+      apikey: apiKey
+    },
+    timeout: 10000
+  });
+
+  // Etherscan returns result as an array even when there are zero transactions
+  // (status "0" / "No transactions found") — a non-array result means a real
+  // error (bad key, invalid address, rate limit), which must be surfaced.
+  if (!Array.isArray(ethTxRes.data.result)) {
+    throw new Error(ethTxRes.data.result || ethTxRes.data.message || 'Etherscan error');
+  }
+
+  ethTxRes.data.result.slice(0, 100).forEach(tx => {
+    const qty = parseFloat(tx.value) / 1e18;
+    if (qty <= 0) return;
+    transfers.push({
+      asset: 'ETH',
+      side: tx.to?.toLowerCase() === addrLower ? 'in' : 'out',
+      qty,
+      price: null,
+      pnl: null,
+      pnlPct: null,
+      date: new Date(parseInt(tx.timeStamp) * 1000).toISOString()
+    });
+  });
+
+  try {
+    const tokenTxRes = await axios.get(ETHERSCAN_BASE, {
+      params: {
+        chainid: ETHERSCAN_CHAIN_ID,
+        module: 'account',
+        action: 'tokentx',
+        address,
+        startblock: 0,
+        endblock: 99999999,
+        sort: 'desc',
+        apikey: apiKey
+      },
+      timeout: 10000
+    });
+
+    if (Array.isArray(tokenTxRes.data.result)) {
+      tokenTxRes.data.result.slice(0, 100).forEach(tx => {
+        const decimals = parseInt(tx.tokenDecimal || '18');
+        const qty = parseFloat(tx.value) / Math.pow(10, decimals);
+        if (qty <= 0) return;
+        transfers.push({
+          asset: tx.tokenSymbol,
+          side: tx.to?.toLowerCase() === addrLower ? 'in' : 'out',
+          qty,
+          price: null,
+          pnl: null,
+          pnlPct: null,
+          date: new Date(parseInt(tx.timeStamp) * 1000).toISOString()
+        });
+      });
+    }
+  } catch (e) { /* token tx history unavailable */ }
+
+  return transfers.sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+module.exports = { getBalances, getPositions, getSpotPositions, getTradeHistory };

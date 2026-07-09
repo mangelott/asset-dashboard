@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const axios = require('axios');
+const { computeRealizedPnl } = require('../utils/pnl');
 
 const BASE_URL = 'https://api.binance.com';
 const FUTURES_URL = 'https://fapi.binance.com';
@@ -118,12 +119,15 @@ async function getBalances(apiKey, secret) {
     getFuturesBalances(apiKey, secret)
   ]);
 
-  const spotData = spot.status === 'fulfilled' ? spot.value : { balances: [], totalUsdt: 0 };
+  // Spot balance failure almost always means invalid/revoked credentials — surface it.
+  // Futures failure is swallowed inside getFuturesBalances since many keys legitimately lack futures permission.
+  if (spot.status === 'rejected') throw spot.reason;
+
   const futuresData = futures.status === 'fulfilled' ? futures.value : { balances: [], totalUsdt: 0 };
 
   return {
-    balances: [...spotData.balances, ...futuresData.balances],
-    totalUsdt: spotData.totalUsdt + futuresData.totalUsdt
+    balances: [...spot.value.balances, ...futuresData.balances],
+    totalUsdt: spot.value.totalUsdt + futuresData.totalUsdt
   };
 }
 
@@ -181,4 +185,41 @@ async function getSpotPositions(apiKey, secret) {
   return positions.filter(Boolean);
 }
 
-module.exports = { getBalances, getFuturesPositions, getSpotPositions };
+// Binance only exposes trade history per symbol, so coverage is limited to
+// assets currently (or recently, while still held) in the account.
+async function getTradeHistory(apiKey, secret) {
+  const [accountData, pricesData] = await Promise.all([
+    request(BASE_URL, apiKey, secret, '/api/v3/account'),
+    axios.get(`${BASE_URL}/api/v3/ticker/price`, { timeout: 10000 })
+  ]);
+
+  const priceMap = {};
+  pricesData.data.forEach(p => { priceMap[p.symbol] = parseFloat(p.price); });
+
+  const holdings = accountData.balances.filter(b => {
+    const amount = parseFloat(b.free) + parseFloat(b.locked);
+    return amount > 0 && !STABLECOINS.has(b.asset);
+  });
+
+  const perAsset = await Promise.all(holdings.map(async b => {
+    const symbol = priceMap[`${b.asset}USDT`] ? `${b.asset}USDT` : priceMap[`${b.asset}USDC`] ? `${b.asset}USDC` : null;
+    if (!symbol) return [];
+    try {
+      const trades = await request(BASE_URL, apiKey, secret, '/api/v3/myTrades', { symbol, limit: 1000 });
+      const normalized = trades.map(t => ({
+        asset: b.asset,
+        side: t.isBuyer ? 'buy' : 'sell',
+        qty: parseFloat(t.qty),
+        price: parseFloat(t.price),
+        date: new Date(t.time).toISOString()
+      })).sort((a, c) => new Date(a.date) - new Date(c.date));
+      return computeRealizedPnl(normalized);
+    } catch (e) {
+      return [];
+    }
+  }));
+
+  return perAsset.flat().sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+module.exports = { getBalances, getFuturesPositions, getSpotPositions, getTradeHistory };

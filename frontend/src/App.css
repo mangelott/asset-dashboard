@@ -70,6 +70,69 @@ header h1 {
   color: #e2e8f0;
 }
 
+/* Currency Toggle */
+.currency-toggle {
+  display: flex;
+  background: #0c0c10;
+  border: 1px solid #18181f;
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.currency-toggle button {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  padding: 6px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.currency-toggle button.active {
+  background: #6366f1;
+  color: #fff;
+}
+
+.page-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  color: #64748b;
+  font-size: 14px;
+}
+
+/* App-level navigation (Dashboard / Alertas / Paper Trading) */
+.app-nav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.app-nav-link {
+  padding: 8px 16px;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.app-nav-link:hover {
+  color: #e2e8f0;
+  background: #0c0c10;
+}
+
+.app-nav-link.active {
+  color: #6366f1;
+  background: #6366f122;
+}
+
 /* Tabs */
 .tabs {
   display: flex;

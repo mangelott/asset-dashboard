@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const axios = require('axios');
+const { computeRealizedPnl } = require('../utils/pnl');
 
 const BASE_URL = 'https://api.coinbase.com';
 
@@ -154,4 +155,42 @@ async function getSpotPositions(apiKey, secret) {
   return positions.filter(Boolean);
 }
 
-module.exports = { getBalances, getPositions, getSpotPositions };
+// Coinbase only exposes buy/sell history per account, so coverage is limited
+// to assets currently (or recently, while still held) in the account.
+async function getTradeHistory(apiKey, secret) {
+  const accountsData = await request(apiKey, secret, 'GET', '/v2/accounts');
+  const accounts = (accountsData.data || []).filter(acc => {
+    const amount = parseFloat(acc.balance.amount);
+    return amount > 0 && !CB_STABLECOINS.has(acc.balance.currency);
+  });
+
+  function normalize(orders, side, asset) {
+    return orders.map(o => {
+      const qty = parseFloat(o.amount?.amount || 0);
+      const price = parseFloat(o.unit_price?.amount || 0) ||
+        (o.subtotal?.amount && qty > 0 ? parseFloat(o.subtotal.amount) / qty : 0);
+      return { asset, side, qty, price, date: new Date(o.created_at).toISOString() };
+    }).filter(t => t.qty > 0 && t.price > 0);
+  }
+
+  const perAsset = await Promise.all(accounts.map(async acc => {
+    const asset = acc.balance.currency;
+    try {
+      const [buys, sells] = await Promise.all([
+        getCoinbaseOrderSide(apiKey, secret, acc.id, 'buy'),
+        getCoinbaseOrderSide(apiKey, secret, acc.id, 'sell')
+      ]);
+
+      const normalized = [...normalize(buys, 'buy', asset), ...normalize(sells, 'sell', asset)]
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      return computeRealizedPnl(normalized);
+    } catch (e) {
+      return [];
+    }
+  }));
+
+  return perAsset.flat().sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+module.exports = { getBalances, getPositions, getSpotPositions, getTradeHistory };
