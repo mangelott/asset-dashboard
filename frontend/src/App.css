@@ -4,6 +4,14 @@
   box-sizing: border-box;
 }
 
+/* Reserve the vertical scrollbar's space on every page so the content width
+   (and centered .app container) doesn't shift between routes depending on
+   whether that page's content is tall enough to need a scrollbar. */
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
 body {
   background: #050508;
   color: #e2e8f0;
