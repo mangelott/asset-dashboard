@@ -776,6 +776,16 @@ tr:hover td { background: #0f0f18; color: #cbd5e1; }
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .app-nav {
+    flex-wrap: wrap;
+  }
+  .card-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
 }
 
 /* ─── Landing Page ───────────────────────────────────────── */
