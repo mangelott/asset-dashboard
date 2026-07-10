@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { runBacktest, sma, rsi, computeIndicators, decideEntry, hasOppositeSignal } = require('../services/backtestEngine');
+const { runBacktest, sma, rsi, computeIndicators, decideEntry, hasOppositeSignal, splitInOutOfSample } = require('../services/backtestEngine');
 
 test('sma computes a trailing simple moving average with null warmup', () => {
   const out = sma([1, 2, 3, 4, 5, 6], 3);
@@ -180,4 +180,26 @@ test('runBacktest: max_hold_candles forces an exit at the close after N bars', (
   assert.equal(trades.length, 1);
   assert.equal(trades[0].exitReason, 'max_hold');
   assert.equal(trades[0].exitPrice, 14.2); // exits at that bar's close
+});
+
+test('splitInOutOfSample divides candles by time at the default 80/20 boundary', () => {
+  const candles = Array.from({ length: 10 }, (_, i) => candle(i * 100, 1, 1, 1, 1)); // times 0,100,...,900
+  const { inSampleCandles, outOfSampleCandles } = splitInOutOfSample(candles, 0, 1000);
+  // splitTime = 0 + (1000-0)*0.8 = 800 -> in-sample: time < 800, out-of-sample: time >= 800
+  assert.deepEqual(inSampleCandles.map(c => c.time), [0, 100, 200, 300, 400, 500, 600, 700]);
+  assert.deepEqual(outOfSampleCandles.map(c => c.time), [800, 900]);
+});
+
+test('splitInOutOfSample respects a custom in-sample fraction', () => {
+  const candles = Array.from({ length: 10 }, (_, i) => candle(i * 100, 1, 1, 1, 1));
+  const { inSampleCandles, outOfSampleCandles } = splitInOutOfSample(candles, 0, 1000, 0.5);
+  assert.deepEqual(inSampleCandles.map(c => c.time), [0, 100, 200, 300, 400]);
+  assert.deepEqual(outOfSampleCandles.map(c => c.time), [500, 600, 700, 800, 900]);
+});
+
+test('splitInOutOfSample returns an empty (not null) array when a side has no candles', () => {
+  const candles = Array.from({ length: 3 }, (_, i) => candle(i * 100, 1, 1, 1, 1)); // times 0,100,200 — all before split at 800
+  const { inSampleCandles, outOfSampleCandles } = splitInOutOfSample(candles, 0, 1000);
+  assert.equal(inSampleCandles.length, 3);
+  assert.deepEqual(outOfSampleCandles, []);
 });

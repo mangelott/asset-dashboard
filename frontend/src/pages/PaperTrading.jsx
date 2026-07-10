@@ -150,16 +150,36 @@ function ChatPanel({ strategy, onSpecApplied }) {
   )
 }
 
+// pg-mem (local test harness) doesn't auto-parse JSONB the way real Postgres/pg
+// does, so metrics/equity_curve can arrive as JSON strings — parse defensively.
+function parseBacktestRun(run) {
+  return {
+    ...run,
+    metrics: typeof run.metrics === 'string' ? JSON.parse(run.metrics) : run.metrics,
+    equity_curve: typeof run.equity_curve === 'string' ? JSON.parse(run.equity_curve) : run.equity_curve
+  }
+}
+
+// Blends per-asset metrics into one row for the version-history table (trade-weighted
+// win rate; summed P&L; worst-case max drawdown) — full per-asset detail stays in the
+// stat cards for the latest run above.
+function blendMetrics(bucket) {
+  if (!bucket?.perAsset?.length) return null
+  const totalTrades = bucket.perAsset.reduce((s, m) => s + m.totalTrades, 0)
+  const winRate = totalTrades > 0
+    ? bucket.perAsset.reduce((s, m) => s + m.winRate * m.totalTrades, 0) / totalTrades
+    : 0
+  const totalPnl = bucket.perAsset.reduce((s, m) => s + m.totalPnl, 0)
+  const maxDrawdownPct = Math.max(...bucket.perAsset.map(m => m.maxDrawdownPct))
+  return { totalTrades, winRate, totalPnl, maxDrawdownPct }
+}
+
 function BacktestPanel({ strategy, onBacktestRun }) {
   const { formatMoney } = useCurrency()
   const [running, setRunning] = useState(false)
   const [days, setDays] = useState(365)
-  const latestRaw = strategy.backtests?.[0]
-  const latest = latestRaw ? {
-    ...latestRaw,
-    metrics: typeof latestRaw.metrics === 'string' ? JSON.parse(latestRaw.metrics) : latestRaw.metrics,
-    equity_curve: typeof latestRaw.equity_curve === 'string' ? JSON.parse(latestRaw.equity_curve) : latestRaw.equity_curve
-  } : null
+  const runs = (strategy.backtests || []).map(parseBacktestRun)
+  const latest = runs[0] || null
   const assetsList = typeof strategy.assets === 'string' ? JSON.parse(strategy.assets) : strategy.assets
   const hasSpec = assetsList?.length > 0 && strategy.timeframe
 
@@ -231,7 +251,72 @@ function BacktestPanel({ strategy, onBacktestRun }) {
               </div>
             ))}
           </div>
+
+          {latest.metrics.inSample && latest.metrics.outOfSample && (() => {
+            const inS = blendMetrics(latest.metrics.inSample)
+            const outS = blendMetrics(latest.metrics.outOfSample)
+            const overfit = inS && outS && (inS.winRate - outS.winRate > 20 || (inS.totalPnl > 0 && outS.totalPnl < 0))
+            return (
+              <div style={{ marginTop: '16px', padding: '14px', background: '#0c0c10', borderRadius: '8px', border: '1px solid #1e293b' }}>
+                <h3 style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '10px', fontWeight: 600 }}>
+                  Validação Out-of-Sample (80% afinação · 20% teste)
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div>
+                    <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase' }}>In-sample (afinação)</span>
+                    <div style={{ fontSize: '14px', marginTop: '4px', color: inS?.totalPnl >= 0 ? '#22c55e' : '#ef4444' }}>
+                      {inS ? `${inS.totalPnl >= 0 ? '+' : ''}${formatMoney(inS.totalPnl)} · ${inS.winRate.toFixed(0)}% win rate` : '— sem dados'}
+                    </div>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase' }}>Out-of-sample (teste)</span>
+                    <div style={{ fontSize: '14px', marginTop: '4px', color: outS?.totalPnl >= 0 ? '#22c55e' : '#ef4444' }}>
+                      {outS ? `${outS.totalPnl >= 0 ? '+' : ''}${formatMoney(outS.totalPnl)} · ${outS.winRate.toFixed(0)}% win rate` : '— sem dados'}
+                    </div>
+                  </div>
+                </div>
+                {overfit && (
+                  <div style={{ marginTop: '10px', fontSize: '12px', color: '#f59e0b' }}>
+                    ⚠️ O desempenho cai bastante fora da amostra de afinação — sinal de possível overfitting. Considera simplificar a estratégia.
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </>
+      )}
+
+      {runs.length > 1 && (
+        <div style={{ marginTop: '20px' }}>
+          <h3 style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '10px', fontWeight: 600 }}>Histórico de Versões</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Versão</th>
+                <th>Período</th>
+                <th>Trades</th>
+                <th>Win rate</th>
+                <th>P&amp;L</th>
+                <th>Max DD</th>
+              </tr>
+            </thead>
+            <tbody>
+              {runs.map(run => {
+                const blended = blendMetrics(run.metrics)
+                return (
+                  <tr key={run.id} style={run.version === strategy.version ? { background: '#6366f111' } : undefined}>
+                    <td>v{run.version}{run.version === strategy.version && <span className="tag" style={{ marginLeft: '6px', color: '#6366f1', background: '#6366f122' }}>atual</span>}</td>
+                    <td style={{ fontSize: '12px', color: '#94a3b8' }}>{dayjs(run.date_range_start).format('DD/MM/YY')} – {dayjs(run.date_range_end).format('DD/MM/YY')}</td>
+                    <td>{blended?.totalTrades ?? '—'}</td>
+                    <td>{blended ? `${blended.winRate.toFixed(0)}%` : '—'}</td>
+                    <td style={{ color: blended?.totalPnl >= 0 ? '#22c55e' : '#ef4444' }}>{blended ? `${blended.totalPnl >= 0 ? '+' : ''}${formatMoney(blended.totalPnl)}` : '—'}</td>
+                    <td>{blended ? `${blended.maxDrawdownPct.toFixed(1)}%` : '—'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

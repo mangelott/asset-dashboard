@@ -19,7 +19,7 @@ const telegram = require('./services/telegram');
 const alertEngine = require('./services/alertEngine');
 const anthropic = require('./services/anthropic');
 const { getHistoricalKlines } = require('./services/bybitMarketData');
-const { runBacktest } = require('./services/backtestEngine');
+const { runBacktest, splitInOutOfSample } = require('./services/backtestEngine');
 const paperTradingEngine = require('./services/paperTradingEngine');
 
 const app = express();
@@ -449,6 +449,14 @@ app.post('/api/paper/strategies/:id/apply-spec', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+function aggregateMetrics(results, key) {
+  if (!results.every(r => r[key])) return null;
+  return {
+    perAsset: results.map(r => ({ symbol: r.symbol, ...r[key].metrics })),
+    totalTrades: results.reduce((s, r) => s + r[key].metrics.totalTrades, 0)
+  };
+}
+
 app.post('/api/paper/strategies/:id/backtest', auth, async (req, res) => {
   try {
     const strategy = await db.getPaperStrategyById(req.user.userId, req.params.id);
@@ -460,16 +468,25 @@ app.post('/api/paper/strategies/:id/backtest', auth, async (req, res) => {
     const days = Math.min(parseInt(req.body.days) || 365, 365);
     const endTime = Date.now();
     const startTime = endTime - days * 24 * 60 * 60 * 1000;
+    const startingCapital = parseFloat(strategy.starting_capital);
 
     const results = await Promise.all(assets.map(async symbol => {
       const candles = await getHistoricalKlines(symbol, strategy.timeframe, startTime, endTime);
-      return { symbol, ...runBacktest(spec, candles, parseFloat(strategy.starting_capital)) };
+      const { inSampleCandles, outOfSampleCandles } = splitInOutOfSample(candles, startTime, endTime);
+      return {
+        symbol,
+        full: runBacktest(spec, candles, startingCapital),
+        inSample: inSampleCandles.length ? runBacktest(spec, inSampleCandles, startingCapital) : null,
+        outOfSample: outOfSampleCandles.length ? runBacktest(spec, outOfSampleCandles, startingCapital) : null
+      };
     }));
 
-    const combinedEquityCurve = results[0]?.equityCurve || [];
+    const combinedEquityCurve = results[0]?.full.equityCurve || [];
     const metrics = {
-      perAsset: results.map(r => ({ symbol: r.symbol, ...r.metrics })),
-      totalTrades: results.reduce((s, r) => s + r.metrics.totalTrades, 0)
+      perAsset: results.map(r => ({ symbol: r.symbol, ...r.full.metrics })),
+      totalTrades: results.reduce((s, r) => s + r.full.metrics.totalTrades, 0),
+      inSample: aggregateMetrics(results, 'inSample'),
+      outOfSample: aggregateMetrics(results, 'outOfSample')
     };
 
     const run = await db.createBacktestRun(strategy.id, {

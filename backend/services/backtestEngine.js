@@ -250,4 +250,20 @@ function computeMetrics(trades, finalEquity, startingCapital, equityCurve) {
   };
 }
 
-module.exports = { runBacktest, sma, rsi, computeIndicators, decideEntry, hasOppositeSignal };
+// Splits a chronological candle set into an in-sample (tuning) portion and a
+// held-out out-of-sample (test) portion by TIME, not candle count, so the
+// split boundary is deterministic regardless of how many candles each asset
+// actually returned for the window. Default 80/20 matches the common
+// train/test convention: the strategy was (presumably) tuned by eye against
+// the oldest 80%, so the most recent 20% approximates unseen data.
+const IN_SAMPLE_FRACTION = 0.8;
+
+function splitInOutOfSample(candles, startTime, endTime, inSampleFraction = IN_SAMPLE_FRACTION) {
+  const splitTime = startTime + (endTime - startTime) * inSampleFraction;
+  return {
+    inSampleCandles: candles.filter(c => c.time < splitTime),
+    outOfSampleCandles: candles.filter(c => c.time >= splitTime)
+  };
+}
+
+module.exports = { runBacktest, sma, rsi, computeIndicators, decideEntry, hasOppositeSignal, splitInOutOfSample, IN_SAMPLE_FRACTION };
