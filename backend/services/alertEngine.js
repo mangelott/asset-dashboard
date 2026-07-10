@@ -24,7 +24,7 @@ async function evaluateAlert(alert) {
 
     await telegram.notifyUser(alert.user_id,
       `🔔 <b>${alert.asset}</b> — vela de ${alert.timeframe} fechou ${alert.condition === 'candle_close_above' ? 'acima' : 'abaixo'} de $${alert.threshold}\nFecho real: $${candle.close}`);
-    await db.markAlertTriggered(alert.id, candleCloseIso);
+    await db.markAlertTriggered(alert.id, candleCloseIso, alert.is_recurring);
     return;
   }
 
@@ -35,7 +35,7 @@ async function evaluateAlert(alert) {
 
   await telegram.notifyUser(alert.user_id,
     `🔔 <b>${alert.asset}</b> — preço ${alert.condition === 'price_above' ? 'acima' : 'abaixo'} de $${alert.threshold}\nPreço atual: $${price}`);
-  await db.markAlertTriggered(alert.id);
+  await db.markAlertTriggered(alert.id, null, alert.is_recurring);
 }
 
 async function checkAllAlerts() {

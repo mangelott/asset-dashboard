@@ -17,7 +17,7 @@ export default function Alerts() {
   const [loading, setLoading] = useState(true)
   const [telegramStatus, setTelegramStatus] = useState(null)
   const [inviteUrl, setInviteUrl] = useState(null)
-  const [form, setForm] = useState({ asset: '', condition: 'candle_close_above', timeframe: '15m', threshold: '' })
+  const [form, setForm] = useState({ asset: '', condition: 'candle_close_above', timeframe: '15m', threshold: '', isRecurring: false })
   const [saving, setSaving] = useState(false)
 
   async function fetchAlerts() {
@@ -65,9 +65,10 @@ export default function Alerts() {
         asset: form.asset.toUpperCase(),
         condition: form.condition,
         timeframe: CONDITIONS.find(c => c.value === form.condition)?.needsTimeframe ? form.timeframe : null,
-        threshold: parseFloat(form.threshold)
+        threshold: parseFloat(form.threshold),
+        isRecurring: form.isRecurring
       })
-      setForm({ asset: '', condition: 'candle_close_above', timeframe: '15m', threshold: '' })
+      setForm({ asset: '', condition: 'candle_close_above', timeframe: '15m', threshold: '', isRecurring: false })
       fetchAlerts()
     } catch (e) { alert(e.response?.data?.error || 'Erro ao criar alerta') }
     finally { setSaving(false) }
@@ -150,6 +151,12 @@ export default function Alerts() {
             <label>Valor ($)</label>
             <input type="number" step="any" placeholder="ex: 62500" value={form.threshold} onChange={e => setForm({ ...form, threshold: e.target.value })} />
           </div>
+          <div className="form-group" style={{ justifyContent: 'flex-end' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={form.isRecurring} onChange={e => setForm({ ...form, isRecurring: e.target.checked })} />
+              Repetir sempre que a condição se verificar
+            </label>
+          </div>
         </form>
         <button className="btn-primary" onClick={createAlert} disabled={saving}>
           {saving ? 'A criar...' : '+ Criar Alerta'}
@@ -187,7 +194,7 @@ export default function Alerts() {
                   <td>${a.threshold}</td>
                   <td>
                     {a.active
-                      ? <span className="tag" style={{ color: '#22c55e', background: '#22c55e22' }}>Ativo</span>
+                      ? <span className="tag" style={{ color: '#22c55e', background: '#22c55e22' }}>{a.is_recurring ? 'Ativo (recorrente)' : 'Ativo (única vez)'}</span>
                       : <span className="tag" style={{ color: '#94a3b8', background: '#94a3b822' }}>Disparado</span>}
                   </td>
                   <td style={{ fontSize: '12px', color: '#94a3b8' }}>{a.last_triggered_at ? new Date(a.last_triggered_at).toLocaleString() : 'Nunca'}</td>

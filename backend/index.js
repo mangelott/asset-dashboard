@@ -364,12 +364,12 @@ app.get('/api/alerts', auth, async (req, res) => {
 
 app.post('/api/alerts', auth, async (req, res) => {
   try {
-    const { asset, condition, timeframe, threshold } = req.body;
+    const { asset, condition, timeframe, threshold, isRecurring } = req.body;
     if (!asset || !condition || threshold === undefined) return res.status(400).json({ error: 'Missing required fields' });
     const validConditions = ['candle_close_above', 'candle_close_below', 'price_above', 'price_below'];
     if (!validConditions.includes(condition)) return res.status(400).json({ error: 'Invalid condition' });
     if (condition.startsWith('candle_close_') && !timeframe) return res.status(400).json({ error: 'Timeframe required for candle-based alerts' });
-    const alert = await db.createPriceAlert(req.user.userId, { asset: asset.toUpperCase(), condition, timeframe, threshold });
+    const alert = await db.createPriceAlert(req.user.userId, { asset: asset.toUpperCase(), condition, timeframe, threshold, isRecurring });
     res.json(alert);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

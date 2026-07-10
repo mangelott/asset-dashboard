@@ -84,9 +84,11 @@ async function initDB() {
       timeframe VARCHAR(10),
       threshold DECIMAL(24, 8) NOT NULL,
       active BOOLEAN NOT NULL DEFAULT true,
+      is_recurring BOOLEAN NOT NULL DEFAULT false,
       last_triggered_at TIMESTAMP,
       created_at TIMESTAMP DEFAULT NOW()
     );
+    ALTER TABLE price_alerts ADD COLUMN IF NOT EXISTS is_recurring BOOLEAN NOT NULL DEFAULT false;
 
     CREATE TABLE IF NOT EXISTS paper_strategies (
       id SERIAL PRIMARY KEY,
@@ -288,11 +290,11 @@ async function deleteTelegramLink(userId) {
 }
 
 // ─── Price Alerts ─────────────────────────────────────────
-async function createPriceAlert(userId, { asset, condition, timeframe, threshold }) {
+async function createPriceAlert(userId, { asset, condition, timeframe, threshold, isRecurring }) {
   const { rows } = await pool.query(`
-    INSERT INTO price_alerts (user_id, asset, condition, timeframe, threshold)
-    VALUES ($1, $2, $3, $4, $5) RETURNING *
-  `, [userId, asset, condition, timeframe, threshold]);
+    INSERT INTO price_alerts (user_id, asset, condition, timeframe, threshold, is_recurring)
+    VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
+  `, [userId, asset, condition, timeframe, threshold, !!isRecurring]);
   return rows[0];
 }
 
@@ -313,8 +315,11 @@ async function deletePriceAlert(userId, id) {
   await pool.query('DELETE FROM price_alerts WHERE id = $1 AND user_id = $2', [id, userId]);
 }
 
-async function markAlertTriggered(id, triggeredAt = null) {
-  await pool.query('UPDATE price_alerts SET active = false, last_triggered_at = COALESCE($2, NOW()) WHERE id = $1', [id, triggeredAt]);
+async function markAlertTriggered(id, triggeredAt = null, keepActive = false) {
+  await pool.query(
+    'UPDATE price_alerts SET active = $3, last_triggered_at = COALESCE($2, NOW()) WHERE id = $1',
+    [id, triggeredAt, keepActive]
+  );
 }
 
 // ─── Paper Trading Strategies ─────────────────────────────
