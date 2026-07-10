@@ -9,36 +9,53 @@ function signRequest(secret, timestamp, method, path, body = '') {
   return crypto.createHmac('sha256', secret).update(message).digest('base64');
 }
 
+// getSpotPositions/getTradeHistory both call getBalances() internally, and the
+// dashboard also polls getBalances directly — each re-fetches
+// /api/v5/account/balance (and per-asset /api/v5/trade/fills) every cycle.
+// Cache in-flight/recent responses per (apiKey, method, path, params) so
+// concurrent callers share one upstream call.
+const requestCache = new Map(); // cacheKey -> { promise, expiresAt }
+const REQUEST_CACHE_TTL_MS = 20000;
+
 async function request(apiKey, secret, passphrase, method, path, params = {}) {
-  const timestamp = new Date().toISOString();
-  const queryString = method === 'GET' && Object.keys(params).length
-    ? '?' + new URLSearchParams(params).toString()
-    : '';
-  const body = method !== 'GET' && Object.keys(params).length
-    ? JSON.stringify(params)
-    : '';
-  const fullPath = path + queryString;
-  const signature = signRequest(secret, timestamp, method, fullPath, body);
+  const cacheKey = `${apiKey}:${method}:${path}:${JSON.stringify(params)}`;
+  const cached = requestCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
 
-  const response = await axios({
-    method,
-    url: `${BASE_URL}${fullPath}`,
-    headers: {
-      'OK-ACCESS-KEY': apiKey,
-      'OK-ACCESS-SIGN': signature,
-      'OK-ACCESS-TIMESTAMP': timestamp,
-      'OK-ACCESS-PASSPHRASE': passphrase,
-      'Content-Type': 'application/json'
-    },
-    data: body || undefined,
-    timeout: 10000
-  });
+  const promise = (async () => {
+    const timestamp = new Date().toISOString();
+    const queryString = method === 'GET' && Object.keys(params).length
+      ? '?' + new URLSearchParams(params).toString()
+      : '';
+    const body = method !== 'GET' && Object.keys(params).length
+      ? JSON.stringify(params)
+      : '';
+    const fullPath = path + queryString;
+    const signature = signRequest(secret, timestamp, method, fullPath, body);
 
-  if (response.data.code !== '0') {
-    throw new Error(`OKX Error: ${response.data.msg}`);
-  }
+    const response = await axios({
+      method,
+      url: `${BASE_URL}${fullPath}`,
+      headers: {
+        'OK-ACCESS-KEY': apiKey,
+        'OK-ACCESS-SIGN': signature,
+        'OK-ACCESS-TIMESTAMP': timestamp,
+        'OK-ACCESS-PASSPHRASE': passphrase,
+        'Content-Type': 'application/json'
+      },
+      data: body || undefined,
+      timeout: 10000
+    });
 
-  return response.data.data;
+    if (response.data.code !== '0') {
+      throw new Error(`OKX Error: ${response.data.msg}`);
+    }
+
+    return response.data.data;
+  })();
+  promise.catch(() => requestCache.delete(cacheKey)); // don't cache failures
+  requestCache.set(cacheKey, { promise, expiresAt: Date.now() + REQUEST_CACHE_TTL_MS });
+  return promise;
 }
 
 async function getBalances(apiKey, secret, passphrase) {

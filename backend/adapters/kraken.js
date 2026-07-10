@@ -13,25 +13,42 @@ function signRequest(secret, path, nonce, data) {
   return hmac;
 }
 
+// getSpotPositions calls getBalances() + fetchKrakenTradesHistory() directly, and
+// the dashboard also polls getBalances/getSpotPositions/getTradeHistory
+// independently — each of those ends up hitting the same Balance/TradesHistory
+// endpoints again. Cache in-flight/recent responses per (apiKey, path, params)
+// so concurrent callers share one upstream call.
+const requestCache = new Map(); // cacheKey -> { promise, expiresAt }
+const REQUEST_CACHE_TTL_MS = 20000;
+
 async function request(apiKey, secret, path, data = {}) {
-  const nonce = Date.now().toString();
-  data.nonce = nonce;
-  const signature = signRequest(secret, path, nonce, data);
+  const cacheKey = `${apiKey}:${path}:${JSON.stringify(data)}`;
+  const cached = requestCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
 
-  const response = await axios.post(`${BASE_URL}${path}`, qs.stringify(data), {
-    headers: {
-      'API-Key': apiKey,
-      'API-Sign': signature,
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    timeout: 10000
-  });
+  const promise = (async () => {
+    const nonce = Date.now().toString();
+    const payload = { ...data, nonce }; // don't mutate the caller's object — keeps the cache key stable
+    const signature = signRequest(secret, path, nonce, payload);
 
-  if (response.data.error && response.data.error.length > 0) {
-    throw new Error(response.data.error.join(', '));
-  }
+    const response = await axios.post(`${BASE_URL}${path}`, qs.stringify(payload), {
+      headers: {
+        'API-Key': apiKey,
+        'API-Sign': signature,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      timeout: 10000
+    });
 
-  return response.data.result;
+    if (response.data.error && response.data.error.length > 0) {
+      throw new Error(response.data.error.join(', '));
+    }
+
+    return response.data.result;
+  })();
+  promise.catch(() => requestCache.delete(cacheKey)); // don't cache failures
+  requestCache.set(cacheKey, { promise, expiresAt: Date.now() + REQUEST_CACHE_TTL_MS });
+  return promise;
 }
 
 // Kraken's public Ticker endpoint rejects the ENTIRE batch if any single pair in it is
@@ -39,16 +56,26 @@ async function request(apiKey, secret, path, data = {}) {
 // (SOL, ADA, AVAX, ...) use plain "USD" (SOLUSD) — mixing both in one request throws
 // "EQuery:Unknown asset pair" for the whole call, silently zeroing out every price.
 // Fetch each asset's price independently so one unknown pair can't poison the rest.
+const priceCache = new Map(); // asset -> { promise, expiresAt }
+const PRICE_CACHE_TTL_MS = 20000;
+
 async function fetchKrakenPrice(rawAsset) {
-  for (const suffix of ['ZUSD', 'USD']) {
-    try {
-      const res = await axios.get(`${BASE_URL}/0/public/Ticker?pair=${rawAsset}${suffix}`, { timeout: 10000 });
-      const result = res.data.result || {};
-      const key = Object.keys(result)[0];
-      if (key) return parseFloat(result[key].c[0]);
-    } catch (e) { /* try next suffix */ }
-  }
-  return 0;
+  const cached = priceCache.get(rawAsset);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
+  const promise = (async () => {
+    for (const suffix of ['ZUSD', 'USD']) {
+      try {
+        const res = await axios.get(`${BASE_URL}/0/public/Ticker?pair=${rawAsset}${suffix}`, { timeout: 10000 });
+        const result = res.data.result || {};
+        const key = Object.keys(result)[0];
+        if (key) return parseFloat(result[key].c[0]);
+      } catch (e) { /* try next suffix */ }
+    }
+    return 0;
+  })();
+  priceCache.set(rawAsset, { promise, expiresAt: Date.now() + PRICE_CACHE_TTL_MS });
+  return promise;
 }
 
 async function getBalances(apiKey, secret) {

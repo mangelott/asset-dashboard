@@ -15,21 +15,48 @@ function signRequest(secret, params) {
   };
 }
 
+// getBalances/getSpotPositions/getTradeHistory each independently re-fetch
+// /api/v3/account, /api/v3/ticker/price, and per-symbol /api/v3/myTrades on
+// every poll cycle. Cache in-flight/recent responses per (apiKey, endpoint,
+// params) so concurrent callers share one upstream call.
+const requestCache = new Map(); // cacheKey -> { promise, expiresAt }
+const REQUEST_CACHE_TTL_MS = 20000;
+
 async function request(baseUrl, apiKey, secret, endpoint, params = {}) {
-  const timestamp = Date.now();
-  const signedParams = signRequest(secret, { ...params, timestamp });
-  const queryString = new URLSearchParams(signedParams).toString();
-  const response = await axios.get(`${baseUrl}${endpoint}?${queryString}`, {
-    headers: { 'X-MBX-APIKEY': apiKey },
-    timeout: 10000
-  });
-  return response.data;
+  const cacheKey = `${apiKey}:${baseUrl}${endpoint}:${JSON.stringify(params)}`;
+  const cached = requestCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
+  const promise = (async () => {
+    const timestamp = Date.now();
+    const signedParams = signRequest(secret, { ...params, timestamp });
+    const queryString = new URLSearchParams(signedParams).toString();
+    const response = await axios.get(`${baseUrl}${endpoint}?${queryString}`, {
+      headers: { 'X-MBX-APIKEY': apiKey },
+      timeout: 10000
+    });
+    return response.data;
+  })();
+  promise.catch(() => requestCache.delete(cacheKey)); // don't cache failures
+  requestCache.set(cacheKey, { promise, expiresAt: Date.now() + REQUEST_CACHE_TTL_MS });
+  return promise;
+}
+
+const tickerPriceCache = { promise: null, expiresAt: 0 };
+
+function fetchAllTickerPrices() {
+  if (tickerPriceCache.promise && tickerPriceCache.expiresAt > Date.now()) return tickerPriceCache.promise;
+  const promise = axios.get(`${BASE_URL}/api/v3/ticker/price`, { timeout: 10000 });
+  promise.catch(() => { tickerPriceCache.promise = null; });
+  tickerPriceCache.promise = promise;
+  tickerPriceCache.expiresAt = Date.now() + REQUEST_CACHE_TTL_MS;
+  return promise;
 }
 
 async function getSpotBalances(apiKey, secret) {
   const [accountData, pricesData] = await Promise.all([
     request(BASE_URL, apiKey, secret, '/api/v3/account'),
-    axios.get(`${BASE_URL}/api/v3/ticker/price`, { timeout: 10000 })
+    fetchAllTickerPrices()
   ]);
 
   const priceMap = {};
@@ -136,7 +163,7 @@ const STABLECOINS = new Set(['USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'FDUSD', 'US
 async function getSpotPositions(apiKey, secret) {
   const [accountData, pricesData] = await Promise.all([
     request(BASE_URL, apiKey, secret, '/api/v3/account'),
-    axios.get(`${BASE_URL}/api/v3/ticker/price`, { timeout: 10000 })
+    fetchAllTickerPrices()
   ]);
 
   const priceMap = {};
@@ -190,7 +217,7 @@ async function getSpotPositions(apiKey, secret) {
 async function getTradeHistory(apiKey, secret) {
   const [accountData, pricesData] = await Promise.all([
     request(BASE_URL, apiKey, secret, '/api/v3/account'),
-    axios.get(`${BASE_URL}/api/v3/ticker/price`, { timeout: 10000 })
+    fetchAllTickerPrices()
   ]);
 
   const priceMap = {};

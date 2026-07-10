@@ -9,24 +9,52 @@ function signRequest(secret, timestamp, method, path, body = '') {
   return crypto.createHmac('sha256', secret).update(message).digest('hex');
 }
 
-async function request(apiKey, secret, method, path, body = '') {
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const signature = signRequest(secret, timestamp, method, path, body);
+// getBalances/getSpotPositions/getTradeHistory each independently re-fetch
+// /v2/accounts (and per-account buy/sell history) on every poll cycle. Cache
+// in-flight/recent responses per (apiKey, method, path, body) so concurrent
+// callers share one upstream call.
+const requestCache = new Map(); // cacheKey -> { promise, expiresAt }
+const REQUEST_CACHE_TTL_MS = 20000;
 
-  const response = await axios({
-    method,
-    url: `${BASE_URL}${path}`,
-    headers: {
-      'CB-ACCESS-KEY': apiKey,
-      'CB-ACCESS-SIGN': signature,
-      'CB-ACCESS-TIMESTAMP': timestamp,
-      'CB-VERSION': '2016-02-18',
-      'Content-Type': 'application/json'
-    },
-    data: body || undefined,
-    timeout: 10000
-  });
-  return response.data;
+async function request(apiKey, secret, method, path, body = '') {
+  const cacheKey = `${apiKey}:${method}:${path}:${body}`;
+  const cached = requestCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
+  const promise = (async () => {
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const signature = signRequest(secret, timestamp, method, path, body);
+
+    const response = await axios({
+      method,
+      url: `${BASE_URL}${path}`,
+      headers: {
+        'CB-ACCESS-KEY': apiKey,
+        'CB-ACCESS-SIGN': signature,
+        'CB-ACCESS-TIMESTAMP': timestamp,
+        'CB-VERSION': '2016-02-18',
+        'Content-Type': 'application/json'
+      },
+      data: body || undefined,
+      timeout: 10000
+    });
+    return response.data;
+  })();
+  promise.catch(() => requestCache.delete(cacheKey)); // don't cache failures
+  requestCache.set(cacheKey, { promise, expiresAt: Date.now() + REQUEST_CACHE_TTL_MS });
+  return promise;
+}
+
+const priceCache = new Map(); // asset -> { promise, expiresAt }
+
+async function fetchCoinbaseSpotPrice(asset) {
+  const cached = priceCache.get(asset);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  const promise = axios.get(`${BASE_URL}/v2/prices/${asset}-USD/spot`, { timeout: 5000 })
+    .then(res => parseFloat(res.data.data.amount));
+  promise.catch(() => priceCache.delete(asset));
+  priceCache.set(asset, { promise, expiresAt: Date.now() + REQUEST_CACHE_TTL_MS });
+  return promise;
 }
 
 async function getBalances(apiKey, secret) {
@@ -49,8 +77,7 @@ async function getBalances(apiKey, secret) {
         currentPrice = 1;
       } else {
         try {
-          const priceData = await axios.get(`${BASE_URL}/v2/prices/${asset}-USD/spot`, { timeout: 5000 });
-          currentPrice = parseFloat(priceData.data.data.amount);
+          currentPrice = await fetchCoinbaseSpotPrice(asset);
           valueUsdt = amount * currentPrice;
         } catch (e) { }
       }
@@ -104,8 +131,7 @@ async function getSpotPositions(apiKey, secret) {
 
     let currentPrice = 0, valueUsdt = 0;
     try {
-      const priceData = await axios.get(`${BASE_URL}/v2/prices/${asset}-USD/spot`, { timeout: 5000 });
-      currentPrice = parseFloat(priceData.data.data.amount);
+      currentPrice = await fetchCoinbaseSpotPrice(asset);
       valueUsdt = qty * currentPrice;
     } catch (e) {}
 

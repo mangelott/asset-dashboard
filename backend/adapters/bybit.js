@@ -15,23 +15,35 @@ function signRequest(apiKey, secret, params) {
   return { timestamp, recvWindow, signature };
 }
 
+// getBalances/getSpotPositions/getTradeHistory each independently fetch the same
+// wallet-balance endpoint (and often overlapping execution-history windows) on
+// every poll cycle. Cache in-flight/recent responses per (apiKey, endpoint,
+// params) so concurrent callers within a short window share one upstream call
+// instead of tripling Bybit's request volume for identical data.
+const requestCache = new Map(); // cacheKey -> { promise, expiresAt }
+const REQUEST_CACHE_TTL_MS = 20000;
+
 async function request(apiKey, secret, endpoint, params = {}) {
+  const cacheKey = `${apiKey}:${endpoint}:${JSON.stringify(params)}`;
+  const cached = requestCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
   const { timestamp, recvWindow, signature } = signRequest(apiKey, secret, params);
   const queryString = new URLSearchParams(params).toString();
-  try {
-    const response = await axios.get(`${BASE_URL}${endpoint}?${queryString}`, {
-      headers: {
-        'X-BAPI-API-KEY': apiKey,
-        'X-BAPI-TIMESTAMP': timestamp,
-        'X-BAPI-RECV-WINDOW': recvWindow,
-        'X-BAPI-SIGN': signature
-      }
-    });
-    return response.data;
-  } catch (e) {
+  const promise = axios.get(`${BASE_URL}${endpoint}?${queryString}`, {
+    headers: {
+      'X-BAPI-API-KEY': apiKey,
+      'X-BAPI-TIMESTAMP': timestamp,
+      'X-BAPI-RECV-WINDOW': recvWindow,
+      'X-BAPI-SIGN': signature
+    }
+  }).then(res => res.data).catch(e => {
     console.error(`[Bybit] ${endpoint} HTTP ${e.response?.status}:`, JSON.stringify(e.response?.data));
     throw e;
-  }
+  });
+  promise.catch(() => requestCache.delete(cacheKey)); // don't cache failures
+  requestCache.set(cacheKey, { promise, expiresAt: Date.now() + REQUEST_CACHE_TTL_MS });
+  return promise;
 }
 
 const EXECUTION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // Bybit's max span per request

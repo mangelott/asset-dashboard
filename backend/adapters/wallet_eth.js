@@ -4,13 +4,29 @@ const MORALIS_BASE = 'https://deep-index.moralis.io/api/v2.2';
 const ETHERSCAN_BASE = 'https://api.etherscan.io/v2/api';
 const ETHERSCAN_CHAIN_ID = 1; // Ethereum mainnet
 
+// getSpotPositions calls getBalances() internally, and getBalances/getTradeHistory
+// both fetch the same Etherscan "tokentx" listing — cache in-flight/recent GETs
+// per (url, params) so concurrent callers share one upstream call.
+const getCache = new Map(); // cacheKey -> { promise, expiresAt }
+const GET_CACHE_TTL_MS = 20000;
+
+function cachedGet(url, config) {
+  const cacheKey = `${url}:${JSON.stringify(config?.params || {})}`;
+  const cached = getCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  const promise = axios.get(url, config);
+  promise.catch(() => getCache.delete(cacheKey)); // don't cache failures
+  getCache.set(cacheKey, { promise, expiresAt: Date.now() + GET_CACHE_TTL_MS });
+  return promise;
+}
+
 async function getBalances(address, apiKey) {
   try {
     const balances = [];
     let totalUsdt = 0;
 
     // ETH balance via Etherscan
-    const ethRes = await axios.get(ETHERSCAN_BASE, {
+    const ethRes = await cachedGet(ETHERSCAN_BASE, {
       params: {
         chainid: ETHERSCAN_CHAIN_ID,
         module: 'account',
@@ -30,7 +46,7 @@ async function getBalances(address, apiKey) {
 
     if (ethBalance > 0) {
       // Buscar preço ETH
-      const priceRes = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd', { timeout: 5000 });
+      const priceRes = await cachedGet('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd', { timeout: 5000 });
       const ethPrice = priceRes.data?.ethereum?.usd || 0;
       const valueUsdt = ethBalance * ethPrice;
       totalUsdt += valueUsdt;
@@ -49,7 +65,7 @@ async function getBalances(address, apiKey) {
     }
 
     // ERC-20 tokens via Etherscan
-    const tokensRes = await axios.get(ETHERSCAN_BASE, {
+    const tokensRes = await cachedGet(ETHERSCAN_BASE, {
       params: {
         chainid: ETHERSCAN_CHAIN_ID,
         module: 'account',
@@ -77,7 +93,7 @@ async function getBalances(address, apiKey) {
 
       for (const token of Object.values(tokenMap).slice(0, 10)) {
         try {
-          const balRes = await axios.get(ETHERSCAN_BASE, {
+          const balRes = await cachedGet(ETHERSCAN_BASE, {
             params: {
               chainid: ETHERSCAN_CHAIN_ID,
               module: 'account',
@@ -97,7 +113,7 @@ async function getBalances(address, apiKey) {
           let currentPrice = 0;
 
           try {
-            const cgRes = await axios.get(
+            const cgRes = await cachedGet(
               `https://api.coingecko.com/api/v3/simple/token_price/ethereum?contract_addresses=${token.contractAddress}&vs_currencies=usd`,
               { timeout: 5000 }
             );
@@ -157,7 +173,7 @@ async function getTradeHistory(address, apiKey) {
   const addrLower = address.toLowerCase();
   const transfers = [];
 
-  const ethTxRes = await axios.get(ETHERSCAN_BASE, {
+  const ethTxRes = await cachedGet(ETHERSCAN_BASE, {
     params: {
       chainid: ETHERSCAN_CHAIN_ID,
       module: 'account',
@@ -193,7 +209,7 @@ async function getTradeHistory(address, apiKey) {
   });
 
   try {
-    const tokenTxRes = await axios.get(ETHERSCAN_BASE, {
+    const tokenTxRes = await cachedGet(ETHERSCAN_BASE, {
       params: {
         chainid: ETHERSCAN_CHAIN_ID,
         module: 'account',
