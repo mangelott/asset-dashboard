@@ -314,7 +314,7 @@ async function deletePriceAlert(userId, id) {
 }
 
 async function markAlertTriggered(id, triggeredAt = null) {
-  await pool.query('UPDATE price_alerts SET last_triggered_at = COALESCE($2, NOW()) WHERE id = $1', [id, triggeredAt]);
+  await pool.query('UPDATE price_alerts SET active = false, last_triggered_at = COALESCE($2, NOW()) WHERE id = $1', [id, triggeredAt]);
 }
 
 // ─── Paper Trading Strategies ─────────────────────────────

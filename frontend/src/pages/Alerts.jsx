@@ -173,6 +173,7 @@ export default function Alerts() {
                 <th>Condição</th>
                 <th>Timeframe</th>
                 <th>Valor</th>
+                <th>Estado</th>
                 <th>Último Disparo</th>
                 <th></th>
               </tr>
@@ -184,6 +185,11 @@ export default function Alerts() {
                   <td>{CONDITIONS.find(c => c.value === a.condition)?.label || a.condition}</td>
                   <td>{a.timeframe || '—'}</td>
                   <td>${a.threshold}</td>
+                  <td>
+                    {a.active
+                      ? <span className="tag" style={{ color: '#22c55e', background: '#22c55e22' }}>Ativo</span>
+                      : <span className="tag" style={{ color: '#94a3b8', background: '#94a3b822' }}>Disparado</span>}
+                  </td>
                   <td style={{ fontSize: '12px', color: '#94a3b8' }}>{a.last_triggered_at ? new Date(a.last_triggered_at).toLocaleString() : 'Nunca'}</td>
                   <td><button className="btn-danger" onClick={() => removeAlert(a.id)}>Remover</button></td>
                 </tr>
