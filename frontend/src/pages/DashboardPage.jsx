@@ -13,6 +13,11 @@ import TransactionsTable from '../components/TransactionsTable'
 import SettingsModal from '../components/SettingsModal'
 import AppNav from '../components/AppNav'
 
+// Survives tab remounts (the Dashboard below is remounted on every tab switch via
+// its `key` prop) so revisiting a tab shows the last-known data instantly instead
+// of a fresh loading state, while fetches still refresh it in the background.
+const dashboardCache = new Map()
+
 // ─── Currency Toggle ──────────────────────────────────────
 function CurrencyToggle() {
   const { currency, setCurrency } = useCurrency()
@@ -27,24 +32,30 @@ function CurrencyToggle() {
 // ─── Dashboard ────────────────────────────────────────────
 function Dashboard({ exchange, isGlobal }) {
   const { formatMoney } = useCurrency()
-  const [balances, setBalances] = useState([])
-  const [positions, setPositions] = useState([])
-  const [spotPositions, setSpotPositions] = useState([])
-  const [transactions, setTransactions] = useState([])
-  const [snapshots, setSnapshots] = useState([])
-  const [totalUsdt, setTotalUsdt] = useState(0)
-  const [breakdown, setBreakdown] = useState({})
-  const [loadingBalances, setLoadingBalances] = useState(true)
-  const [loadingPositions, setLoadingPositions] = useState(true)
-  const [loadingSpot, setLoadingSpot] = useState(true)
-  const [loadingTransactions, setLoadingTransactions] = useState(true)
+  const exchangeId = isGlobal ? 'global' : exchange?.id
+  const cached = dashboardCache.get(exchangeId)
+
+  const [balances, setBalances] = useState(cached?.balances || [])
+  const [positions, setPositions] = useState(cached?.positions || [])
+  const [spotPositions, setSpotPositions] = useState(cached?.spotPositions || [])
+  const [transactions, setTransactions] = useState(cached?.transactions || [])
+  const [snapshots, setSnapshots] = useState(cached?.snapshots || [])
+  const [totalUsdt, setTotalUsdt] = useState(cached?.totalUsdt || 0)
+  const [breakdown, setBreakdown] = useState(cached?.breakdown || {})
+  const [loadingBalances, setLoadingBalances] = useState(!cached?.balances)
+  const [loadingPositions, setLoadingPositions] = useState(!cached?.positions)
+  const [loadingSpot, setLoadingSpot] = useState(!cached?.spotPositions)
+  const [loadingTransactions, setLoadingTransactions] = useState(!cached?.transactions)
   const [saving, setSaving] = useState(false)
-  const [lastUpdated, setLastUpdated] = useState(null)
+  const [lastUpdated, setLastUpdated] = useState(cached?.lastUpdated || null)
   const [balanceError, setBalanceError] = useState(null)
 
-  const exchangeId = isGlobal ? 'global' : exchange?.id
   const exchangeType = isGlobal ? 'global' : exchange?.type
   const color = EXCHANGE_TYPES[exchangeType]?.color || '#6366f1'
+
+  function updateCache(patch) {
+    dashboardCache.set(exchangeId, { ...dashboardCache.get(exchangeId), ...patch })
+  }
 
   const accountUrl = isGlobal ? `${API}/api/global/account` : `${API}/api/exchange/${exchangeId}/account`
   const positionsUrl = isGlobal ? `${API}/api/global/positions` : `${API}/api/exchange/${exchangeId}/positions`
@@ -54,11 +65,16 @@ function Dashboard({ exchange, isGlobal }) {
   async function fetchBalances() {
     try {
       const res = await axios.get(accountUrl)
-      setBalances(res.data.balances || [])
-      setTotalUsdt(res.data.totalUsdt || 0)
-      setBreakdown(res.data.breakdown || {})
-      setLastUpdated(new Date())
+      const balances = res.data.balances || []
+      const totalUsdt = res.data.totalUsdt || 0
+      const breakdown = res.data.breakdown || {}
+      const lastUpdated = new Date()
+      setBalances(balances)
+      setTotalUsdt(totalUsdt)
+      setBreakdown(breakdown)
+      setLastUpdated(lastUpdated)
       setBalanceError(null)
+      updateCache({ balances, totalUsdt, breakdown, lastUpdated })
     } catch (e) {
       console.error('Balance error:', e.message)
       setBalanceError(e.response?.data?.error || e.message || 'Failed to load balances')
@@ -70,7 +86,9 @@ function Dashboard({ exchange, isGlobal }) {
   async function fetchPositions() {
     try {
       const res = await axios.get(positionsUrl)
-      setPositions(res.data || [])
+      const positions = res.data || []
+      setPositions(positions)
+      updateCache({ positions })
     } catch (e) {
       console.error('Positions error:', e.message)
     } finally {
@@ -81,7 +99,9 @@ function Dashboard({ exchange, isGlobal }) {
   async function fetchSpotPositions() {
     try {
       const res = await axios.get(spotPositionsUrl)
-      setSpotPositions(res.data || [])
+      const spotPositions = res.data || []
+      setSpotPositions(spotPositions)
+      updateCache({ spotPositions })
     } catch (e) {
       console.error('Spot positions error:', e.message)
     } finally {
@@ -92,7 +112,9 @@ function Dashboard({ exchange, isGlobal }) {
   async function fetchTransactions() {
     try {
       const res = await axios.get(transactionsUrl)
-      setTransactions(res.data || [])
+      const transactions = res.data || []
+      setTransactions(transactions)
+      updateCache({ transactions })
     } catch (e) {
       console.error('Transactions error:', e.message)
     } finally {
@@ -103,7 +125,9 @@ function Dashboard({ exchange, isGlobal }) {
   async function fetchSnapshots() {
     try {
       const res = await axios.get(`${API}/api/snapshots/${exchangeId}`)
-      setSnapshots(res.data || [])
+      const snapshots = res.data || []
+      setSnapshots(snapshots)
+      updateCache({ snapshots })
     } catch (e) { console.error('Snapshots error:', e.message) }
   }
 
