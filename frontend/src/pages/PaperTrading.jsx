@@ -14,6 +14,59 @@ const STATUS_LABELS = {
   paused: { label: 'Pausada', color: '#ef4444' }
 }
 
+const MEDALS = ['🥇', '🥈', '🥉']
+
+function Leaderboard({ strategies, onSelect }) {
+  const { formatMoney } = useCurrency()
+  const live = strategies
+    .filter(s => s.status === 'live')
+    .map(s => {
+      const equity = parseFloat(s.equity)
+      const startingCapital = parseFloat(s.starting_capital)
+      const peakEquity = parseFloat(s.peak_equity)
+      const pnl = equity - startingCapital
+      const pnlPct = startingCapital > 0 ? (pnl / startingCapital) * 100 : 0
+      const drawdownPct = peakEquity > 0 ? ((peakEquity - equity) / peakEquity) * 100 : 0
+      return { ...s, equity, pnl, pnlPct, drawdownPct }
+    })
+    .sort((a, b) => b.pnlPct - a.pnlPct)
+
+  if (!live.length) return null
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h2>Leaderboard — Estratégias Ao Vivo</h2>
+        <span className="tag" style={{ color: '#22c55e', background: '#22c55e22' }}>{live.length}</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th>Estratégia</th>
+            <th>Equity</th>
+            <th>P&amp;L</th>
+            <th>Drawdown atual</th>
+          </tr>
+        </thead>
+        <tbody>
+          {live.map((s, i) => (
+            <tr key={s.id} onClick={() => onSelect(s.id)} style={{ cursor: 'pointer' }}>
+              <td>{MEDALS[i] || `#${i + 1}`}</td>
+              <td><strong>{s.name}</strong></td>
+              <td>{formatMoney(s.equity)}</td>
+              <td style={{ color: s.pnl >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>
+                {s.pnl >= 0 ? '+' : ''}{formatMoney(s.pnl)} ({s.pnlPct >= 0 ? '+' : ''}{s.pnlPct.toFixed(1)}%)
+              </td>
+              <td style={{ color: s.drawdownPct > 0 ? '#f59e0b' : '#94a3b8' }}>{s.drawdownPct.toFixed(1)}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function StrategyList({ strategies, onSelect, onCreate }) {
   const { formatMoney } = useCurrency()
   const [name, setName] = useState('')
@@ -36,6 +89,8 @@ function StrategyList({ strategies, onSelect, onCreate }) {
           <button className="btn-primary" type="submit" disabled={creating}>{creating ? '...' : '+ Criar'}</button>
         </form>
       </div>
+
+      <Leaderboard strategies={strategies} onSelect={onSelect} />
 
       <div className="card">
         <div className="card-header">
