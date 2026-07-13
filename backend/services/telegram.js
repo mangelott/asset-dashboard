@@ -52,16 +52,21 @@ async function createLinkInvite(userId) {
   return { url: `https://t.me/${username}?start=${code}`, expiresInMinutes: 10 };
 }
 
+const HELP_TEXT = 'Comandos disponíveis:\n/saldo — saldo total da carteira\n/estrategias — lista as estratégias de Paper Trading ao vivo\n/pausar &lt;nome&gt; — pausa uma estratégia ao vivo';
+
 // Called by the /api/telegram/webhook route for each incoming update.
-async function handleUpdate(update) {
+// `handlers` (optional) supplies the balance/paper-strategy logic that lives in
+// index.js, so this module doesn't need to require it back (circular).
+async function handleUpdate(update, handlers = {}) {
   const message = update.message;
   if (!message?.text) return;
 
   const chatId = message.chat.id;
-  const match = message.text.match(/^\/start\s+([a-f0-9]+)$/i);
+  const text = message.text.trim();
+  const startMatch = text.match(/^\/start\s+([a-f0-9]+)$/i);
 
-  if (match) {
-    const code = match[1];
+  if (startMatch) {
+    const code = startMatch[1];
     const userId = await db.consumeTelegramLinkCode(code);
     if (userId) {
       await db.upsertTelegramLink(userId, String(chatId));
@@ -72,9 +77,65 @@ async function handleUpdate(update) {
     return;
   }
 
-  if (message.text === '/start') {
+  if (text === '/start') {
     await sendMessage(chatId, 'Olá! Para ligar este chat à tua conta assetfol.io, usa o link "Ligar ao Telegram" nas definições de Alertas da app.');
+    return;
   }
+
+  if (!text.startsWith('/')) return; // ignore plain chatter — only commands are handled below
+
+  const userId = await db.getUserIdByTelegramChatId(String(chatId));
+  if (!userId) {
+    await sendMessage(chatId, 'Esta conta ainda não está ligada. Usa o link "Ligar ao Telegram" nas definições de Alertas da app.');
+    return;
+  }
+
+  if (text === '/saldo') {
+    if (!handlers.getGlobalBalance) return;
+    try {
+      const totalUsdt = await handlers.getGlobalBalance(userId);
+      await sendMessage(chatId, `💰 Saldo total: $${totalUsdt.toFixed(2)}`);
+    } catch (e) {
+      await sendMessage(chatId, `⚠️ Não foi possível calcular o saldo agora: ${e.message}`);
+    }
+    return;
+  }
+
+  if (text === '/estrategias') {
+    if (!handlers.listLiveStrategies) return;
+    const strategies = await handlers.listLiveStrategies(userId);
+    if (!strategies.length) {
+      await sendMessage(chatId, 'Não tens estratégias de Paper Trading ao vivo neste momento.');
+      return;
+    }
+    const lines = strategies.map(s => {
+      const equity = parseFloat(s.equity);
+      const startingCapital = parseFloat(s.starting_capital);
+      const pnl = equity - startingCapital;
+      const pnlPct = startingCapital > 0 ? (pnl / startingCapital) * 100 : 0;
+      return `• <b>${s.name}</b>: $${equity.toFixed(2)} (${pnl >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)`;
+    });
+    await sendMessage(chatId, `📊 Estratégias ao vivo:\n${lines.join('\n')}`);
+    return;
+  }
+
+  const pauseMatch = text.match(/^\/pausar\s+(.+)$/i);
+  if (pauseMatch) {
+    if (!handlers.pauseStrategyByName) return;
+    const name = pauseMatch[1].trim();
+    const result = await handlers.pauseStrategyByName(userId, name);
+    await sendMessage(chatId, result
+      ? `🛑 Estratégia "${result.name}" pausada.`
+      : `Não encontrei nenhuma estratégia ao vivo chamada "${name}".`);
+    return;
+  }
+
+  if (text === '/help' || text === '/ajuda') {
+    await sendMessage(chatId, HELP_TEXT);
+    return;
+  }
+
+  await sendMessage(chatId, `Comando não reconhecido.\n\n${HELP_TEXT}`);
 }
 
 module.exports = { isConfigured, getBotUsername, sendMessage, notifyUser, createLinkInvite, handleUpdate };

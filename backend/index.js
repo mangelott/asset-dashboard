@@ -72,6 +72,28 @@ async function fetchExchangeTransactions(exchange) {
   return adapter.getTradeHistory(exchange.api_key, exchange.api_secret);
 }
 
+// Injected into telegram.handleUpdate() so bot commands can reach the same
+// balance-aggregation and paper-strategy logic the authenticated routes use,
+// without telegram.js needing to require index.js (would be circular).
+const telegramCommandHandlers = {
+  async getGlobalBalance(userId) {
+    const list = await db.getAllExchanges(userId);
+    const exchanges = await Promise.all(list.map(e => db.getExchangeById(userId, e.id)));
+    const results = await Promise.allSettled(exchanges.map(fetchExchangeData));
+    return results.reduce((sum, r) => sum + (r.status === 'fulfilled' ? r.value.totalUsdt : 0), 0);
+  },
+  async listLiveStrategies(userId) {
+    const strategies = await db.getPaperStrategiesByUserId(userId);
+    return strategies.filter(s => s.status === 'live');
+  },
+  async pauseStrategyByName(userId, name) {
+    const strategies = await db.getPaperStrategiesByUserId(userId);
+    const match = strategies.find(s => s.status === 'live' && s.name.toLowerCase() === name.toLowerCase());
+    if (!match) return null;
+    return db.updatePaperStrategyStatus(userId, match.id, 'paused');
+  }
+};
+
 // ─── Auth Middleware ──────────────────────────────────────
 function auth(req, res, next) {
   const header = req.headers.authorization;
@@ -348,7 +370,7 @@ app.delete('/api/telegram/link', auth, async (req, res) => {
 // Public — called by Telegram's servers, not the frontend.
 app.post('/api/telegram/webhook', async (req, res) => {
   try {
-    await telegram.handleUpdate(req.body);
+    await telegram.handleUpdate(req.body, telegramCommandHandlers);
   } catch (e) {
     console.error('Telegram webhook error:', e.message);
   }
