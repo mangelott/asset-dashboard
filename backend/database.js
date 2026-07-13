@@ -102,8 +102,12 @@ async function initDB() {
       parent_version_id INTEGER REFERENCES paper_strategies(id) ON DELETE SET NULL,
       starting_capital DECIMAL(20, 8) NOT NULL DEFAULT 10000,
       equity DECIMAL(20, 8) NOT NULL DEFAULT 10000,
+      peak_equity DECIMAL(20, 8) NOT NULL DEFAULT 10000,
+      max_drawdown_pct DECIMAL(5, 2) DEFAULT 25,
       created_at TIMESTAMP DEFAULT NOW()
     );
+    ALTER TABLE paper_strategies ADD COLUMN IF NOT EXISTS peak_equity DECIMAL(20, 8) NOT NULL DEFAULT 10000;
+    ALTER TABLE paper_strategies ADD COLUMN IF NOT EXISTS max_drawdown_pct DECIMAL(5, 2) DEFAULT 25;
 
     CREATE TABLE IF NOT EXISTS strategy_chat_messages (
       id SERIAL PRIMARY KEY,
@@ -289,6 +293,11 @@ async function deleteTelegramLink(userId) {
   await pool.query('DELETE FROM telegram_links WHERE user_id = $1', [userId]);
 }
 
+async function getUserIdByTelegramChatId(chatId) {
+  const { rows } = await pool.query('SELECT user_id FROM telegram_links WHERE chat_id = $1', [chatId]);
+  return rows[0]?.user_id || null;
+}
+
 // ─── Price Alerts ─────────────────────────────────────────
 async function createPriceAlert(userId, { asset, condition, timeframe, threshold, isRecurring }) {
   const { rows } = await pool.query(`
@@ -324,10 +333,11 @@ async function markAlertTriggered(id, triggeredAt = null, keepActive = false) {
 
 // ─── Paper Trading Strategies ─────────────────────────────
 async function createPaperStrategy(userId, { name, assets, timeframe, spec, startingCapital }) {
+  const capital = startingCapital || 10000;
   const { rows } = await pool.query(`
-    INSERT INTO paper_strategies (user_id, name, assets, timeframe, spec, starting_capital, equity)
-    VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING *
-  `, [userId, name, JSON.stringify(assets || []), timeframe, JSON.stringify(spec || {}), startingCapital || 10000]);
+    INSERT INTO paper_strategies (user_id, name, assets, timeframe, spec, starting_capital, equity, peak_equity)
+    VALUES ($1, $2, $3, $4, $5, $6, $6, $6) RETURNING *
+  `, [userId, name, JSON.stringify(assets || []), timeframe, JSON.stringify(spec || {}), capital]);
   return rows[0];
 }
 
@@ -370,7 +380,19 @@ async function updatePaperStrategyStatus(userId, id, status) {
 }
 
 async function updatePaperStrategyEquity(id, equity) {
-  await pool.query('UPDATE paper_strategies SET equity = $2 WHERE id = $1', [id, equity]);
+  await pool.query(
+    'UPDATE paper_strategies SET equity = $2, peak_equity = GREATEST(peak_equity, $2) WHERE id = $1',
+    [id, equity]
+  );
+}
+
+// maxDrawdownPct = null disables auto-pause for this strategy.
+async function updatePaperStrategyRisk(userId, id, maxDrawdownPct) {
+  const { rows } = await pool.query(
+    'UPDATE paper_strategies SET max_drawdown_pct = $3 WHERE id = $1 AND user_id = $2 RETURNING *',
+    [id, userId, maxDrawdownPct]
+  );
+  return rows[0] || null;
 }
 
 async function deletePaperStrategy(userId, id) {
@@ -503,6 +525,7 @@ module.exports = {
   upsertTelegramLink,
   getTelegramLinkByUserId,
   deleteTelegramLink,
+  getUserIdByTelegramChatId,
   createPriceAlert,
   getPriceAlertsByUserId,
   getAllActivePriceAlerts,
@@ -515,6 +538,7 @@ module.exports = {
   updatePaperStrategySpec,
   updatePaperStrategyStatus,
   updatePaperStrategyEquity,
+  updatePaperStrategyRisk,
   deletePaperStrategy,
   addStrategyChatMessage,
   getStrategyChatMessages,

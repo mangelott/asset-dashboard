@@ -47,6 +47,11 @@ function evaluateExit(spec, position, candle, i, candles, series) {
   return { exitPrice, reason, peakPrice };
 }
 
+// How far equity has fallen from its high-water mark, as a percentage.
+function computeDrawdownPct(peakEquity, equity) {
+  return peakEquity > 0 ? ((peakEquity - equity) / peakEquity) * 100 : 0;
+}
+
 function computePnl(position, exitPrice) {
   const entryPrice = parseFloat(position.entry_price);
   const qty = parseFloat(position.qty);
@@ -62,6 +67,8 @@ async function evaluateStrategy(strategy) {
   if (!assets?.length || !timeframe) return;
 
   let equity = parseFloat(strategy.equity);
+  let peakEquity = parseFloat(strategy.peak_equity);
+  const maxDrawdownPct = strategy.max_drawdown_pct !== null ? parseFloat(strategy.max_drawdown_pct) : null;
 
   for (const symbol of assets) {
     const asset = symbol.replace(/USDT$/, '');
@@ -86,10 +93,19 @@ async function evaluateStrategy(strategy) {
         const pnl = computePnl(openPosition, exitPrice);
         await db.closePaperPosition(openPosition.id, { exitPrice, pnl, closedAt: new Date(lastCandle.time) });
         equity += pnl;
+        peakEquity = Math.max(peakEquity, equity);
         await db.updatePaperStrategyEquity(strategy.id, equity);
         await db.addPaperEquitySnapshot(strategy.id, equity);
         await telegram.notifyUser(strategy.user_id,
           `📉 <b>${strategy.name}</b> — fechou ${asset} (${reason})\nP&L: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`);
+
+        const drawdownPct = computeDrawdownPct(peakEquity, equity);
+        if (maxDrawdownPct !== null && drawdownPct >= maxDrawdownPct) {
+          await db.updatePaperStrategyStatus(strategy.user_id, strategy.id, 'paused');
+          await telegram.notifyUser(strategy.user_id,
+            `🛑 <b>${strategy.name}</b> pausada automaticamente — drawdown de ${drawdownPct.toFixed(1)}% atingiu o limite de ${maxDrawdownPct}%.`);
+          return; // strategy is no longer live — stop evaluating its remaining assets this tick
+        }
       } else {
         await db.updatePaperPositionPeak(openPosition.id, peakPrice);
       }
@@ -124,4 +140,4 @@ async function checkLiveStrategies() {
   }
 }
 
-module.exports = { checkLiveStrategies };
+module.exports = { checkLiveStrategies, computeDrawdownPct };

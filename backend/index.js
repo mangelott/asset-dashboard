@@ -518,6 +518,18 @@ app.post('/api/paper/strategies/:id/pause', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+app.post('/api/paper/strategies/:id/risk', auth, async (req, res) => {
+  try {
+    const { maxDrawdownPct } = req.body;
+    if (maxDrawdownPct !== null && (typeof maxDrawdownPct !== 'number' || maxDrawdownPct <= 0 || maxDrawdownPct > 100)) {
+      return res.status(400).json({ error: 'maxDrawdownPct deve ser um número entre 0 e 100, ou null para desativar' });
+    }
+    const updated = await db.updatePaperStrategyRisk(req.user.userId, req.params.id, maxDrawdownPct);
+    if (!updated) return res.status(404).json({ error: 'Strategy not found' });
+    res.json(updated);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/paper/strategies/:id/positions', auth, async (req, res) => {
   try {
     const strategy = await db.getPaperStrategyById(req.user.userId, req.params.id);

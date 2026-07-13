@@ -322,10 +322,22 @@ function BacktestPanel({ strategy, onBacktestRun }) {
   )
 }
 
-function LivePanel({ strategy }) {
+function LivePanel({ strategy, onUpdate }) {
   const { formatMoney } = useCurrency()
   const [positions, setPositions] = useState([])
   const [equitySnapshots, setEquitySnapshots] = useState([])
+  const [maxDrawdownPct, setMaxDrawdownPct] = useState(strategy.max_drawdown_pct ?? '')
+  const [savingRisk, setSavingRisk] = useState(false)
+
+  async function saveRisk() {
+    setSavingRisk(true)
+    try {
+      const value = maxDrawdownPct === '' ? null : parseFloat(maxDrawdownPct)
+      await axios.post(`${API}/api/paper/strategies/${strategy.id}/risk`, { maxDrawdownPct: value })
+      onUpdate?.()
+    } catch (e) { alert(e.response?.data?.error || 'Erro ao guardar o limite de drawdown') }
+    finally { setSavingRisk(false) }
+  }
 
   async function fetchLiveData() {
     try {
@@ -358,6 +370,19 @@ function LivePanel({ strategy }) {
       <div className="card-header">
         <h2>Paper Trading — Ao Vivo</h2>
         <span className="tag" style={{ color: '#22c55e', background: '#22c55e22' }}>Equity: {formatMoney(parseFloat(strategy.equity))}</span>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', fontSize: '13px', color: '#94a3b8' }}>
+        <span>🛑 Pausa automática se o drawdown exceder</span>
+        <input
+          type="number" min="1" max="100" step="1" placeholder="desativado"
+          value={maxDrawdownPct} onChange={e => setMaxDrawdownPct(e.target.value)}
+          style={{ width: '70px' }}
+        />
+        <span>%</span>
+        <button className="btn-ghost" onClick={saveRisk} disabled={savingRisk} style={{ padding: '4px 10px', fontSize: '12px' }}>
+          {savingRisk ? '...' : 'Guardar'}
+        </button>
       </div>
 
       {equityChartData.length > 1 && (
@@ -480,7 +505,7 @@ function StrategyDetail({ strategyId, onBack }) {
         )}
       </div>
 
-      {strategy.status === 'live' && <LivePanel strategy={strategy} />}
+      {strategy.status === 'live' && <LivePanel strategy={strategy} onUpdate={fetchDetail} />}
 
       <div className="main-grid">
         <ChatPanel strategy={strategy} onSpecApplied={fetchDetail} />
