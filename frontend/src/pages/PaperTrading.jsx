@@ -67,7 +67,7 @@ function Leaderboard({ strategies, onSelect }) {
   )
 }
 
-function StrategyList({ strategies, onSelect, onCreate }) {
+function StrategyList({ strategies, onSelect, onCreate, onRemove }) {
   const { formatMoney } = useCurrency()
   const [name, setName] = useState('')
   const [creating, setCreating] = useState(false)
@@ -113,6 +113,7 @@ function StrategyList({ strategies, onSelect, onCreate }) {
                       <span>{status.label} · Equity: {formatMoney(parseFloat(s.equity))}</span>
                     </div>
                   </div>
+                  <button className="btn-danger" onClick={e => { e.stopPropagation(); onRemove(s.id) }}>Remover</button>
                 </div>
               )
             })}
@@ -532,6 +533,13 @@ function StrategyDetail({ strategyId, onBack }) {
     } catch (e) { alert(e.response?.data?.error || 'Erro ao pausar') }
   }
 
+  async function remove() {
+    try {
+      await axios.delete(`${API}/api/paper/strategies/${strategyId}`)
+      onBack()
+    } catch (e) { alert(e.response?.data?.error || 'Erro ao remover a estratégia') }
+  }
+
   if (loading || !strategy) return <div className="table-loading">A carregar...</div>
 
   const status = STATUS_LABELS[strategy.status] || STATUS_LABELS.draft
@@ -548,6 +556,7 @@ function StrategyDetail({ strategyId, onBack }) {
             <button className="btn-primary" onClick={activate} disabled={!strategy.backtests?.length}>Ativar (Paper Trading)</button>
           )}
           {strategy.status === 'live' && <button className="btn-danger" onClick={pause}>Pausar</button>}
+          <button className="btn-danger" onClick={remove}>Remover</button>
         </div>
       </div>
 
@@ -594,6 +603,11 @@ export default function PaperTrading() {
     setSelectedId(res.data.id)
   }
 
+  async function removeStrategy(id) {
+    await axios.delete(`${API}/api/paper/strategies/${id}`)
+    await fetchStrategies()
+  }
+
   return (
     <div className="app">
       <header>
@@ -613,7 +627,7 @@ export default function PaperTrading() {
       ) : selectedId ? (
         <StrategyDetail strategyId={selectedId} onBack={() => { setSelectedId(null); fetchStrategies() }} />
       ) : (
-        <StrategyList strategies={strategies} onSelect={setSelectedId} onCreate={createStrategy} />
+        <StrategyList strategies={strategies} onSelect={setSelectedId} onCreate={createStrategy} onRemove={removeStrategy} />
       )}
     </div>
   )
