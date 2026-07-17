@@ -14,6 +14,10 @@ const STRATEGY_SPEC_SCHEMA = {
       description: 'Bybit linear USDT perpetual symbols, e.g. ["BTCUSDT", "XRPUSDT"]'
     },
     timeframe: { type: 'string', enum: ['1m', '5m', '15m', '30m', '1h', '4h', '1d'] },
+    htf_timeframe: {
+      type: 'string', enum: ['1h', '2h', '4h', '6h', '12h', '1d', '1w'],
+      description: 'Optional higher timeframe used by entry_rules with use_htf=true, for daily-bias / HTF support-resistance style filters. Must be strictly higher than `timeframe`. Omit if no entry_rule uses use_htf.'
+    },
     leverage: { type: 'number', minimum: 1, maximum: 10 },
     side: { type: 'string', enum: ['long', 'short', 'both'] },
     position_sizing: {
@@ -36,7 +40,11 @@ const STRATEGY_SPEC_SCHEMA = {
           slow_period: { type: 'number' },
           comparator: { type: 'string', enum: ['above', 'below'] },
           direction: { type: 'string', enum: ['above', 'below', 'bullish', 'bearish'] },
-          value: { type: 'number' }
+          value: { type: 'number' },
+          use_htf: {
+            type: 'boolean',
+            description: 'If true, evaluate this rule against htf_timeframe candles instead of the primary timeframe (daily bias / HTF support-resistance). Requires htf_timeframe to be set on the spec.'
+          }
         },
         required: ['indicator']
       }
@@ -61,12 +69,15 @@ O teu papel é traduzir descrições em texto livre do utilizador para uma espec
 
 Indicadores suportados nesta versão: RSI, cruzamento de médias móveis (ma_cross), rutura de máximo/mínimo (breakout), preço vs. média móvel (price_vs_ma).
 
+Timeframe superior (multi-timeframe): qualquer entry_rule pode ter "use_htf: true" para ser avaliada num timeframe superior (htf_timeframe) em vez do timeframe principal — isto serve para aproximar conceitos como "bias diário" (ex: price_vs_ma com use_htf no diário) ou "suporte/resistência de timeframe superior" (ex: breakout com use_htf no 4h/diário). htf_timeframe tem de ser estritamente maior do que o timeframe da estratégia.
+
 Regras importantes:
 - Até 3 ativos (símbolos lineares Bybit, ex: BTCUSDT). Se o utilizador pedir sugestões, sugere tu mesmo e explica porquê.
 - Se o utilizador não especificar o timeframe, escolhe um razoável para a estratégia descrita e explica a escolha — mas deixa claro que é ajustável.
 - Alavancagem máxima permitida: 10x.
 - SEMPRE que estiveres a propor uma estratégia nova ou uma alteração a uma existente, usa a ferramenta propose_strategy_spec — nunca apliques nada sem o utilizador ver e confirmar primeiro. Explica a proposta em português simples na tua resposta de texto, e deixa a estrutura exata para a ferramenta.
 - Se a mensagem do utilizador for só uma pergunta ou comentário (não uma mudança de estratégia), responde só em texto, sem chamar a ferramenta.
+- Se o utilizador descrever critérios que NÃO têm correspondência nos indicadores suportados (ex: zonas de liquidez, equal highs/lows, sweeps, notícias económicas/calendário macro, order blocks, análise discricionária de price action) — NUNCA os ignores silenciosamente. Diz explicitamente, na tua resposta de texto, quais critérios não consegues incluir na especificação estruturada e porquê (ainda não suportado nesta versão), antes de propores a parte que consegues aproximar.
 - Sê direto e conciso.`;
 
 async function chat(messages) {

@@ -17,6 +17,7 @@ export default function StrategySpecSummary({ assets, timeframe, spec }) {
     <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '13px', lineHeight: 1.8, color: '#cbd5e1' }}>
       {assets?.length > 0 && <li>Ativos: <strong>{assets.join(', ')}</strong></li>}
       {timeframe && <li>Timeframe: <strong>{timeframe}</strong></li>}
+      {spec.htf_timeframe && <li>Timeframe superior: <strong>{spec.htf_timeframe}</strong></li>}
       {spec.leverage && <li>Alavancagem: <strong>{spec.leverage}x</strong></li>}
       {spec.side && <li>Direção: <strong>{SIDE_LABELS[spec.side] || spec.side}</strong></li>}
       {sizing.value && <li>Dimensionamento: <strong>{sizing.type === 'pct_capital' ? `${sizing.value}% do capital` : `$${sizing.value} fixos`}</strong></li>}
@@ -24,7 +25,12 @@ export default function StrategySpecSummary({ assets, timeframe, spec }) {
         <li>
           Entrada ({spec.entry_logic === 'any' ? 'qualquer uma' : 'todas'}):
           <ul style={{ margin: '4px 0' }}>
-            {rules.map((r, i) => <li key={i}>{INDICATOR_LABELS[r.indicator]?.(r) || r.indicator}</li>)}
+            {rules.map((r, i) => (
+              <li key={i}>
+                {INDICATOR_LABELS[r.indicator]?.(r) || r.indicator}
+                {r.use_htf && <strong> (timeframe superior)</strong>}
+              </li>
+            ))}
           </ul>
         </li>
       )}

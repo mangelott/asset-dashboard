@@ -18,7 +18,7 @@ const db = require('./database');
 const telegram = require('./services/telegram');
 const alertEngine = require('./services/alertEngine');
 const anthropic = require('./services/anthropic');
-const { getHistoricalKlines } = require('./services/bybitMarketData');
+const { getHistoricalKlines, timeframeMs } = require('./services/bybitMarketData');
 const { runBacktest, splitInOutOfSample } = require('./services/backtestEngine');
 const paperTradingEngine = require('./services/paperTradingEngine');
 
@@ -454,6 +454,11 @@ app.post('/api/paper/strategies/:id/chat', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.response?.data?.error?.message || e.message }); }
 });
 
+// Ordering used to validate that spec.htf_timeframe is strictly "higher" than
+// the strategy's own trading timeframe (a daily-bias filter on a 15m strategy
+// makes sense; a 5m "HTF" on a 1h strategy doesn't).
+const TIMEFRAME_RANK = { '1m': 1, '3m': 2, '5m': 3, '15m': 4, '30m': 5, '1h': 6, '2h': 7, '4h': 8, '6h': 9, '12h': 10, '1d': 11, '1w': 12 };
+
 app.post('/api/paper/strategies/:id/apply-spec', auth, async (req, res) => {
   try {
     const strategy = await db.getPaperStrategyById(req.user.userId, req.params.id);
@@ -461,6 +466,9 @@ app.post('/api/paper/strategies/:id/apply-spec', auth, async (req, res) => {
     const { assets, timeframe, ...spec } = req.body;
     if (!assets?.length || assets.length > 3) return res.status(400).json({ error: 'Escolhe entre 1 e 3 ativos' });
     if (spec.leverage > 10) return res.status(400).json({ error: 'Alavancagem máxima é 10x' });
+    if (spec.htf_timeframe && TIMEFRAME_RANK[spec.htf_timeframe] <= TIMEFRAME_RANK[timeframe]) {
+      return res.status(400).json({ error: 'O timeframe superior (htf_timeframe) tem de ser maior do que o timeframe da estratégia' });
+    }
 
     const updated = await db.updatePaperStrategySpec(strategy.id, {
       assets, timeframe, spec,
@@ -495,11 +503,26 @@ app.post('/api/paper/strategies/:id/backtest', auth, async (req, res) => {
     const results = await Promise.all(assets.map(async symbol => {
       const candles = await getHistoricalKlines(symbol, strategy.timeframe, startTime, endTime);
       const { inSampleCandles, outOfSampleCandles } = splitInOutOfSample(candles, startTime, endTime);
+
+      // Optional higher-timeframe filter (daily bias, HTF support/resistance).
+      // Fetched over the same [startTime, endTime] window and split at the
+      // same boundary so in-sample/out-of-sample stay aligned with the
+      // primary series.
+      let htfFull = null, htfInSample = null, htfOutOfSample = null;
+      if (spec.htf_timeframe) {
+        const htfCandles = await getHistoricalKlines(symbol, spec.htf_timeframe, startTime, endTime);
+        const htfBarMs = timeframeMs(spec.htf_timeframe);
+        const htfSplit = splitInOutOfSample(htfCandles, startTime, endTime);
+        htfFull = { candles: htfCandles, barMs: htfBarMs };
+        htfInSample = { candles: htfSplit.inSampleCandles, barMs: htfBarMs };
+        htfOutOfSample = { candles: htfSplit.outOfSampleCandles, barMs: htfBarMs };
+      }
+
       return {
         symbol,
-        full: runBacktest(spec, candles, startingCapital),
-        inSample: inSampleCandles.length ? runBacktest(spec, inSampleCandles, startingCapital) : null,
-        outOfSample: outOfSampleCandles.length ? runBacktest(spec, outOfSampleCandles, startingCapital) : null
+        full: runBacktest(spec, candles, startingCapital, htfFull),
+        inSample: inSampleCandles.length ? runBacktest(spec, inSampleCandles, startingCapital, htfInSample) : null,
+        outOfSample: outOfSampleCandles.length ? runBacktest(spec, outOfSampleCandles, startingCapital, htfOutOfSample) : null
       };
     }));
 

@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { runBacktest, sma, rsi, computeIndicators, decideEntry, hasOppositeSignal, splitInOutOfSample } = require('../services/backtestEngine');
+const { runBacktest, sma, rsi, computeIndicators, decideEntry, hasOppositeSignal, splitInOutOfSample, alignHtfIndices, buildContext } = require('../services/backtestEngine');
 
 test('sma computes a trailing simple moving average with null warmup', () => {
   const out = sma([1, 2, 3, 4, 5, 6], 3);
@@ -44,15 +44,15 @@ test('decideEntry with entry_logic "any" fires on the first rule that holds', ()
   // Sharp drop so RSI falls below 30 quickly
   const closes = [100, 100, 90, 80, 70, 60];
   const candles = closes.map((c, i) => candle(i, c, c, c, c));
-  const series = computeIndicators(spec, candles);
+  const ctx = buildContext(spec, candles);
   // Find the first index where the rule actually holds and assert decideEntry agrees
   let firedAt = null;
   for (let i = 0; i < candles.length; i++) {
-    const side = decideEntry(spec, i, candles, series);
+    const side = decideEntry(spec, i, ctx);
     if (side) { firedAt = i; break; }
   }
   assert.equal(firedAt !== null, true, 'expected the RSI-below-30 rule to eventually fire');
-  assert.equal(decideEntry(spec, firedAt, candles, series), 'long');
+  assert.equal(decideEntry(spec, firedAt, ctx), 'long');
 });
 
 test('decideEntry with entry_logic "all" requires every same-side rule to hold', () => {
@@ -65,9 +65,9 @@ test('decideEntry with entry_logic "all" requires every same-side rule to hold',
   };
   const closes = [100, 90, 80, 70, 60];
   const candles = closes.map((c, i) => candle(i, c, c, c, c));
-  const series = computeIndicators(spec, candles);
+  const ctx = buildContext(spec, candles);
   // Once both indicators have warmed up and price is below its MA with low RSI, both rules hold.
-  const side = decideEntry(spec, 4, candles, series);
+  const side = decideEntry(spec, 4, ctx);
   assert.equal(side, 'long');
 });
 
@@ -79,8 +79,8 @@ test('decideEntry ignores signals on the disallowed side when spec.side is restr
   };
   const closes = [10, 20, 30, 40, 50];
   const candles = closes.map((c, i) => candle(i, c, c, c, c));
-  const series = computeIndicators(spec, candles);
-  const side = decideEntry(spec, 4, candles, series);
+  const ctx = buildContext(spec, candles);
+  const side = decideEntry(spec, 4, ctx);
   assert.equal(side, null); // the short signal exists but is filtered out by spec.side = 'long'
 });
 
@@ -94,8 +94,8 @@ test('hasOppositeSignal detects a signal on the opposite side while a position i
   };
   const closes = [10, 20, 30, 40, 50];
   const candles = closes.map((c, i) => candle(i, c, c, c, c));
-  const series = computeIndicators(spec, candles);
-  assert.equal(hasOppositeSignal(spec, 'long', 4, candles, series), true);
+  const ctx = buildContext(spec, candles);
+  assert.equal(hasOppositeSignal(spec, 'long', 4, ctx), true);
 });
 
 test('runBacktest: breakout entry, take-profit exit, fees applied — hand-verified numbers', () => {
@@ -202,4 +202,96 @@ test('splitInOutOfSample returns an empty (not null) array when a side has no ca
   const { inSampleCandles, outOfSampleCandles } = splitInOutOfSample(candles, 0, 1000);
   assert.equal(inSampleCandles.length, 3);
   assert.deepEqual(outOfSampleCandles, []);
+});
+
+// ─── Multi-timeframe (HTF) ──────────────────────────────────
+
+test('alignHtfIndices maps each primary bar to the last HTF bar that had fully closed', () => {
+  // Primary: 1h bars at 0,1,2,...,7 (hours). HTF: 4h bars at 0 and 4 (each spans 4h).
+  const barMs = 60 * 60 * 1000;
+  const htfBarMs = 4 * barMs;
+  const candles = Array.from({ length: 8 }, (_, i) => candle(i * barMs, 1, 1, 1, 1));
+  const htfCandles = [candle(0, 1, 1, 1, 1), candle(4 * barMs, 1, 1, 1, 1)];
+
+  const map = alignHtfIndices(candles, htfCandles, htfBarMs);
+
+  // The HTF bar starting at t=0 only fully closes at t=4h — so primary bars
+  // 0..3 (hours 0-3) see no closed HTF bar yet (null), and primary bars 4..7
+  // see the first HTF bar (index 0) as the latest closed one. The second HTF
+  // bar (starting at t=4h) wouldn't close until t=8h, past our primary range.
+  assert.deepEqual(map, [null, null, null, null, 0, 0, 0, 0]);
+});
+
+test('buildContext without htf leaves htfSeries/htfIndexMap null (unchanged single-timeframe behavior)', () => {
+  const spec = { entry_rules: [{ indicator: 'rsi', period: 2 }] };
+  const candles = [candle(0, 1, 1, 1, 1), candle(1, 1, 1, 1, 1)];
+  const ctx = buildContext(spec, candles);
+  assert.equal(ctx.htfSeries, null);
+  assert.equal(ctx.htfIndexMap, null);
+  assert.equal(ctx.candles, candles);
+});
+
+test('evalRule (via decideEntry) with use_htf evaluates against the HTF series, not the primary one', () => {
+  const barMs = 60 * 60 * 1000;
+  const htfBarMs = 4 * barMs;
+  // Primary (1h) price stays flat/high — would NOT trigger "price below MA" on its own.
+  // 16 hourly bars so the HTF (4h) series has room to progress past its warmup.
+  const candles = Array.from({ length: 16 }, (_, i) => candle(i * barMs, 100, 100, 100, 100));
+  // HTF (4h) closes trend sharply downward, so "close < sma(2)" becomes true from the 3rd HTF bar on.
+  const htfCloses = [100, 100, 90, 70];
+  const htfCandles = htfCloses.map((c, i) => candle(i * htfBarMs, c, c, c, c));
+
+  const spec = {
+    entry_logic: 'any',
+    entry_rules: [{ indicator: 'price_vs_ma', period: 2, comparator: 'below', use_htf: true }]
+  };
+  const ctx = buildContext(spec, candles, { candles: htfCandles, barMs: htfBarMs });
+
+  // HTF bar index 2 (close=90, sma_2=95, so 90<95 holds -> "short") only fully
+  // closes at t=12h, so the rule should start firing exactly at primary index
+  // 12 (t=12h) and hold through the rest of the window (index 15, the last
+  // one the HTF series can reach).
+  const fires = candles.map((_, i) => decideEntry(spec, i, ctx) === 'short');
+  assert.deepEqual(fires, [
+    false, false, false, false, false, false, false, false,
+    false, false, false, false, true, true, true, true
+  ]);
+
+  // Confirm it did NOT fire on the primary series alone (which stays flat at 100,
+  // never satisfying "close < its own moving average").
+  const primaryOnlySpec = { ...spec, entry_rules: [{ indicator: 'price_vs_ma', period: 2, comparator: 'below' }] };
+  const primaryOnlyCtx = buildContext(primaryOnlySpec, candles);
+  const firedOnPrimaryAlone = candles.some((_, i) => decideEntry(primaryOnlySpec, i, primaryOnlyCtx) === 'short');
+  assert.equal(firedOnPrimaryAlone, false);
+});
+
+test('use_htf rule returns null (never fires) when no HTF data was supplied', () => {
+  const spec = {
+    entry_logic: 'any',
+    entry_rules: [{ indicator: 'price_vs_ma', period: 2, comparator: 'below', use_htf: true }]
+  };
+  const candles = [10, 20, 5].map((c, i) => candle(i, c, c, c, c));
+  const ctx = buildContext(spec, candles); // no htf passed
+  for (let i = 0; i < candles.length; i++) {
+    assert.equal(decideEntry(spec, i, ctx), null);
+  }
+});
+
+test('runBacktest accepts an htf param and still runs (integration through the public API)', () => {
+  const barMs = 60 * 60 * 1000;
+  const htfBarMs = 4 * barMs;
+  const candles = Array.from({ length: 8 }, (_, i) => candle(i * barMs, 100, 105, 95, 100 + i));
+  const htfCandles = Array.from({ length: 4 }, (_, i) => candle(i * htfBarMs, 100, 105, 90, 100 - i * 5));
+
+  const spec = {
+    entry_logic: 'any',
+    entry_rules: [{ indicator: 'price_vs_ma', period: 2, comparator: 'below', use_htf: true }],
+    exit_rules: { max_hold_candles: 3 },
+    position_sizing: { type: 'fixed_usd', value: 1000 },
+    leverage: 1
+  };
+
+  const { metrics, equityCurve } = runBacktest(spec, candles, 10000, { candles: htfCandles, barMs: htfBarMs });
+  assert.equal(equityCurve.length, candles.length);
+  assert.equal(typeof metrics.totalTrades, 'number');
 });

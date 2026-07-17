@@ -1,6 +1,16 @@
 // Pure simulation engine: given a strategy spec (the bounded DSL) and a
 // chronological array of candles, walks bar-by-bar and simulates trades.
 // No network calls, no DB access — fully deterministic given the same inputs.
+//
+// Multi-timeframe (HTF) support: an entry_rule with `use_htf: true` is
+// evaluated against a second, higher-timeframe candle series instead of the
+// primary one (e.g. "daily bias" or "4h support/resistance" while trading on
+// 15m). Everything indicator-related is threaded through a single `ctx`
+// object — { candles, series, htfCandles, htfSeries, htfIndexMap } — instead
+// of separate params, specifically so a future indicator family (e.g.
+// liquidity/swing-point detection) is a matter of adding one more field to
+// ctx and one more branch in evalRule/computeIndicators, not re-plumbing
+// every function signature again.
 
 const TAKER_FEE = 0.00055; // Bybit linear futures taker fee
 
@@ -82,12 +92,53 @@ function computeIndicators(spec, candles) {
   return series;
 }
 
-// Evaluates one rule at bar index i. Returns { holds, side } or null if not enough warmup data yet.
-function evalRule(rule, i, candles, series) {
-  const close = candles[i].close;
+// Aligns each primary-timeframe candle to the index of the last HTF candle
+// that had FULLY CLOSED by that primary candle's open time. Deliberately
+// never picks a same-bar or future HTF candle — that would leak information
+// the strategy couldn't have known yet (lookahead bias). Both series are
+// assumed chronological, so this is a single O(n) two-pointer sweep rather
+// than a binary search per bar.
+function alignHtfIndices(candles, htfCandles, htfBarMs) {
+  let htfIdx = -1;
+  return candles.map(c => {
+    while (htfIdx + 1 < htfCandles.length && htfCandles[htfIdx + 1].time + htfBarMs <= c.time) {
+      htfIdx++;
+    }
+    return htfIdx >= 0 ? htfIdx : null;
+  });
+}
+
+// Builds the indicator-evaluation context for one backtest run. `htf` is
+// optional: { candles, barMs } for the higher timeframe, or null/omitted for
+// a plain single-timeframe strategy (existing behavior, unchanged).
+function buildContext(spec, candles, htf = null) {
+  const series = computeIndicators(spec, candles);
+  if (!htf || !htf.candles?.length) {
+    return { candles, series, htfCandles: null, htfSeries: null, htfIndexMap: null };
+  }
+  return {
+    candles,
+    series,
+    htfCandles: htf.candles,
+    htfSeries: computeIndicators(spec, htf.candles),
+    htfIndexMap: alignHtfIndices(candles, htf.candles, htf.barMs)
+  };
+}
+
+// Evaluates one rule at primary-timeframe bar index i. Returns { holds, side }
+// or null if not enough warmup data yet (or, for an HTF rule, if no HTF data
+// was supplied at all).
+function evalRule(rule, i, ctx) {
+  const useHtf = !!rule.use_htf;
+  if (useHtf && (!ctx.htfSeries || !ctx.htfIndexMap)) return null;
+  const idx = useHtf ? ctx.htfIndexMap[i] : i;
+  if (idx === null) return null; // HTF history hasn't warmed up yet at this point in the backtest
+  const series = useHtf ? ctx.htfSeries : ctx.series;
+  const candles = useHtf ? ctx.htfCandles : ctx.candles;
+  const close = candles[idx].close;
 
   if (rule.indicator === 'rsi') {
-    const value = series[`rsi_${rule.period}`][i];
+    const value = series[`rsi_${rule.period}`][idx];
     if (value === null) return null;
     const side = rule.comparator === 'below' ? 'long' : 'short';
     const holds = rule.comparator === 'below' ? value < rule.value : value > rule.value;
@@ -97,16 +148,16 @@ function evalRule(rule, i, candles, series) {
   if (rule.indicator === 'ma_cross') {
     const fast = series[`sma_${rule.fast_period}`];
     const slow = series[`sma_${rule.slow_period}`];
-    if (i === 0 || fast[i] === null || slow[i] === null || fast[i - 1] === null || slow[i - 1] === null) return null;
+    if (idx === 0 || fast[idx] === null || slow[idx] === null || fast[idx - 1] === null || slow[idx - 1] === null) return null;
     const side = rule.direction === 'bullish' ? 'long' : 'short';
     const holds = rule.direction === 'bullish'
-      ? fast[i - 1] <= slow[i - 1] && fast[i] > slow[i]
-      : fast[i - 1] >= slow[i - 1] && fast[i] < slow[i];
+      ? fast[idx - 1] <= slow[idx - 1] && fast[idx] > slow[idx]
+      : fast[idx - 1] >= slow[idx - 1] && fast[idx] < slow[idx];
     return { holds, side };
   }
 
   if (rule.indicator === 'price_vs_ma') {
-    const ma = series[`sma_${rule.period}`][i];
+    const ma = series[`sma_${rule.period}`][idx];
     if (ma === null) return null;
     const side = rule.comparator === 'above' ? 'long' : 'short';
     const holds = rule.comparator === 'above' ? close > ma : close < ma;
@@ -115,7 +166,7 @@ function evalRule(rule, i, candles, series) {
 
   if (rule.indicator === 'breakout') {
     const side = rule.direction === 'above' ? 'long' : 'short';
-    const level = rule.direction === 'above' ? series[`high_${rule.period}`][i] : series[`low_${rule.period}`][i];
+    const level = rule.direction === 'above' ? series[`high_${rule.period}`][idx] : series[`low_${rule.period}`][idx];
     if (level === null) return null;
     const holds = rule.direction === 'above' ? close > level : close < level;
     return { holds, side };
@@ -125,10 +176,10 @@ function evalRule(rule, i, candles, series) {
 }
 
 // Combines all rule evaluations for bar i into an entry decision.
-function decideEntry(spec, i, candles, series) {
+function decideEntry(spec, i, ctx) {
   const allowedSide = spec.side || 'both';
   const results = (spec.entry_rules || [])
-    .map(rule => evalRule(rule, i, candles, series))
+    .map(rule => evalRule(rule, i, ctx))
     .filter(r => r !== null)
     .filter(r => allowedSide === 'both' || r.side === allowedSide);
 
@@ -147,19 +198,19 @@ function decideEntry(spec, i, candles, series) {
   return null;
 }
 
-function hasOppositeSignal(spec, side, i, candles, series) {
+function hasOppositeSignal(spec, side, i, ctx) {
   const opposite = side === 'long' ? 'short' : 'long';
   return (spec.entry_rules || [])
-    .map(rule => evalRule(rule, i, candles, series))
+    .map(rule => evalRule(rule, i, ctx))
     .some(r => r && r.side === opposite && r.holds);
 }
 
-function runBacktest(spec, candles, startingCapital) {
+function runBacktest(spec, candles, startingCapital, htf = null) {
   const exitRules = spec.exit_rules || {};
   const sizing = spec.position_sizing || { type: 'fixed_usd', value: 1000 };
   const leverage = spec.leverage || 1;
 
-  const series = computeIndicators(spec, candles);
+  const ctx = buildContext(spec, candles, htf);
   const trades = [];
   const equityCurve = [];
   let equity = startingCapital;
@@ -193,7 +244,7 @@ function runBacktest(spec, candles, startingCapital) {
         exitPrice = trailLevel; exitReason = 'trailing_stop';
       } else if (exitRules.max_hold_candles && i - position.entryIndex >= exitRules.max_hold_candles) {
         exitPrice = candle.close; exitReason = 'max_hold';
-      } else if (exitRules.opposite_signal_exit && hasOppositeSignal(spec, side, i, candles, series)) {
+      } else if (exitRules.opposite_signal_exit && hasOppositeSignal(spec, side, i, ctx)) {
         exitPrice = candle.close; exitReason = 'opposite_signal';
       }
 
@@ -208,7 +259,12 @@ function runBacktest(spec, candles, startingCapital) {
     }
 
     if (!position) {
-      const side = decideEntry(spec, i, candles, series);
+      const side = decideEntry(spec, i, ctx);
+      // Extension point for an economic-news blackout filter (Approach C): unlike
+      // use_htf rules, a news filter isn't a per-asset technical signal — it's a
+      // blanket "don't open anything within N minutes of high-impact news" gate.
+      // It belongs here, wrapping `side` with a calendar lookup keyed by candle.time,
+      // not as another entry_rules[].indicator.
       if (side) {
         const margin = sizing.type === 'pct_capital' ? equity * (sizing.value / 100) : sizing.value;
         const notional = margin * leverage;
@@ -266,4 +322,7 @@ function splitInOutOfSample(candles, startTime, endTime, inSampleFraction = IN_S
   };
 }
 
-module.exports = { runBacktest, sma, rsi, computeIndicators, decideEntry, hasOppositeSignal, splitInOutOfSample, IN_SAMPLE_FRACTION };
+module.exports = {
+  runBacktest, sma, rsi, computeIndicators, decideEntry, hasOppositeSignal,
+  splitInOutOfSample, IN_SAMPLE_FRACTION, alignHtfIndices, buildContext
+};

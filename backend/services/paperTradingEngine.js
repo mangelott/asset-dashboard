@@ -1,7 +1,7 @@
 const db = require('../database');
 const telegram = require('./telegram');
 const { getRecentKlines, timeframeMs } = require('./bybitMarketData');
-const { computeIndicators, decideEntry, hasOppositeSignal } = require('./backtestEngine');
+const { buildContext, decideEntry, hasOppositeSignal } = require('./backtestEngine');
 
 const TAKER_FEE = 0.00055;
 const WARMUP_CANDLES = 250; // enough history for typical indicator periods (e.g. SMA 200)
@@ -12,7 +12,7 @@ function parseJson(value) {
 
 // Mirrors backtestEngine's per-bar exit check, but reads/writes persisted
 // position state (peak_price, opened_at) since live positions survive across cron ticks.
-function evaluateExit(spec, position, candle, i, candles, series) {
+function evaluateExit(spec, position, candle, i, ctx) {
   const exitRules = spec.exit_rules || {};
   const side = position.side;
   const entryPrice = parseFloat(position.entry_price);
@@ -40,7 +40,7 @@ function evaluateExit(spec, position, candle, i, candles, series) {
     exitPrice = trailLevel; reason = 'trailing stop';
   } else if (exitRules.max_hold_candles && candlesHeld >= exitRules.max_hold_candles) {
     exitPrice = candle.close; reason = 'tempo máximo';
-  } else if (exitRules.opposite_signal_exit && hasOppositeSignal(spec, side, i, candles, series)) {
+  } else if (exitRules.opposite_signal_exit && hasOppositeSignal(spec, side, i, ctx)) {
     exitPrice = candle.close; reason = 'sinal contrário';
   }
 
@@ -81,14 +81,23 @@ async function evaluateStrategy(strategy) {
     const lastProcessed = await db.getLastProcessedCandleTime(strategy.id, symbol);
     if (lastProcessed === lastCandle.time) continue; // this candle was already acted on
 
-    const series = computeIndicators(spec, closed);
+    // The HTF series is per-asset (each symbol has its own daily/4h candles),
+    // so it's fetched inside the loop even though the flag is checked once above.
+    let assetHtf = null;
+    if (spec.htf_timeframe) {
+      const htfBarMs = timeframeMs(spec.htf_timeframe);
+      const htfCandlesRaw = await getRecentKlines(symbol, spec.htf_timeframe, WARMUP_CANDLES);
+      const htfCandles = htfCandlesRaw.filter(c => c.time + htfBarMs <= now);
+      assetHtf = { candles: htfCandles, barMs: htfBarMs };
+    }
+    const ctx = buildContext(spec, closed, assetHtf);
     const i = closed.length - 1;
 
     const openPositions = await db.getOpenPaperPositions(strategy.id);
     const openPosition = openPositions.find(p => p.asset === asset);
 
     if (openPosition) {
-      const { exitPrice, reason, peakPrice } = evaluateExit({ ...spec, timeframe }, openPosition, lastCandle, i, closed, series);
+      const { exitPrice, reason, peakPrice } = evaluateExit({ ...spec, timeframe }, openPosition, lastCandle, i, ctx);
       if (exitPrice !== null) {
         const pnl = computePnl(openPosition, exitPrice);
         await db.closePaperPosition(openPosition.id, { exitPrice, pnl, closedAt: new Date(lastCandle.time) });
@@ -110,7 +119,7 @@ async function evaluateStrategy(strategy) {
         await db.updatePaperPositionPeak(openPosition.id, peakPrice);
       }
     } else {
-      const side = decideEntry(spec, i, closed, series);
+      const side = decideEntry(spec, i, ctx);
       if (side) {
         const sizing = spec.position_sizing || { type: 'fixed_usd', value: 1000 };
         const leverage = spec.leverage || 1;
