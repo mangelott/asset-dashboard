@@ -267,9 +267,17 @@ cron.schedule('0 0 * * *', async () => {
 // ─── Net Deposits ─────────────────────────────────────────
 async function fetchExchangeDeposits(exchange, since) {
   const adapter = ADAPTERS[exchange.type];
-  if (!adapter?.getNetDeposits) return 0;
-  if (exchange.type === 'okx') return adapter.getNetDeposits(exchange.api_key, exchange.api_secret, exchange.passphrase, since);
-  return adapter.getNetDeposits(exchange.api_key, exchange.api_secret, since);
+  let apiDeposits = 0;
+  if (adapter?.getNetDeposits) {
+    try {
+      if (exchange.type === 'okx') apiDeposits = await adapter.getNetDeposits(exchange.api_key, exchange.api_secret, exchange.passphrase, since);
+      else apiDeposits = await adapter.getNetDeposits(exchange.api_key, exchange.api_secret, since);
+    } catch (e) {
+      console.error(`[${exchange.name}] API deposits error:`, e.message);
+    }
+  }
+  const manualTotal = await db.getTotalManualDeposits(exchange.user_id, exchange.id, since);
+  return apiDeposits + manualTotal;
 }
 
 app.get('/api/exchange/:id/net-deposits', auth, async (req, res) => {
@@ -302,6 +310,31 @@ app.get('/api/global/net-deposits', auth, async (req, res) => {
     });
 
     res.json({ totalDeposits, byExchange });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── Manual Deposits CRUD ──────────────────────────────────
+app.get('/api/exchanges/:id/deposits', auth, async (req, res) => {
+  try {
+    const deposits = await db.getManualDeposits(req.user.userId, req.params.id);
+    res.json(deposits);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/exchanges/:id/deposits', auth, async (req, res) => {
+  try {
+    const { amount, date, note } = req.body;
+    const parsed = parseFloat(amount);
+    if (!parsed || parsed <= 0) return res.status(400).json({ error: 'Valid amount required' });
+    const deposit = await db.addManualDeposit(req.user.userId, req.params.id, parsed, date || null, note || '');
+    res.json(deposit);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/deposits/:depositId', auth, async (req, res) => {
+  try {
+    await db.deleteManualDeposit(req.user.userId, parseInt(req.params.depositId));
+    res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

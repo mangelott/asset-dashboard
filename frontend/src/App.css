@@ -1153,3 +1153,146 @@ tr:hover td { background: #0f0f18; color: #cbd5e1; }
 
   .lfeature-card { padding: 32px; }
 }
+
+/* ─── Deposits UI ─────────────────────────────────────────── */
+.deposits-section {
+  border-top: 1px solid #18181f;
+  padding-top: 16px;
+  margin-top: 8px;
+}
+
+.deposits-section h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+
+.deposit-hint {
+  font-size: 12px;
+  color: #64748b;
+  background: #0f0f17;
+  border: 1px solid #1e1e2e;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.deposits-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.deposit-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #0f0f17;
+  border: 1px solid #18181f;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
+.deposit-date {
+  color: #64748b;
+  min-width: 82px;
+  font-variant-numeric: tabular-nums;
+}
+
+.deposit-amount {
+  color: #4ade80;
+  font-weight: 600;
+  min-width: 70px;
+  font-variant-numeric: tabular-nums;
+}
+
+.deposit-note {
+  color: #94a3b8;
+  font-size: 12px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deposit-remove {
+  background: none;
+  border: none;
+  color: #475569;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  margin-left: auto;
+  transition: color 0.15s;
+}
+
+.deposit-remove:hover {
+  color: #ef4444;
+}
+
+.deposits-total {
+  font-size: 12px;
+  color: #64748b;
+  text-align: right;
+  padding: 4px 0 10px;
+}
+
+.deposits-total strong {
+  color: #4ade80;
+}
+
+.deposit-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #0a0a10;
+  border: 1px dashed #1e1e2e;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.deposit-add-form input {
+  background: #13131d;
+  border: 1px solid #1e1e2e;
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 13px;
+  padding: 7px 10px;
+  outline: none;
+  width: 100%;
+  transition: border-color 0.15s;
+}
+
+.deposit-add-form input:focus {
+  border-color: #4f46e5;
+}
+
+.deposit-add-form .btn-add-deposit {
+  background: #1e1e3a;
+  border: 1px solid #2d2d5e;
+  border-radius: 6px;
+  color: #818cf8;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.deposit-add-form .btn-add-deposit:hover {
+  background: #2d2d5e;
+  color: #a5b4fc;
+}
+
+.deposit-add-form .btn-add-deposit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
