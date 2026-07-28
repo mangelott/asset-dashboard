@@ -12,7 +12,7 @@ const FEATURES = [
   {
     icon: '⚡',
     title: 'Real-Time Positions',
-    desc: 'Live futures positions updated every 5 seconds. Track unrealized PnL, leverage, entry prices, and liquidation levels.'
+    desc: 'Live futures positions updated every 15 seconds. Track unrealized PnL, leverage, entry prices, and liquidation levels.'
   },
   {
     icon: '📅',

@@ -1,7 +1,24 @@
 const axios = require('axios');
 
 const MORALIS_BASE = 'https://deep-index.moralis.io/api/v2.2';
-const ETHERSCAN_BASE = 'https://api.etherscan.io/api';
+const ETHERSCAN_BASE = 'https://api.etherscan.io/v2/api';
+const ETHERSCAN_CHAIN_ID = 1; // Ethereum mainnet
+
+// getSpotPositions calls getBalances() internally, and getBalances/getTradeHistory
+// both fetch the same Etherscan "tokentx" listing — cache in-flight/recent GETs
+// per (url, params) so concurrent callers share one upstream call.
+const getCache = new Map(); // cacheKey -> { promise, expiresAt }
+const GET_CACHE_TTL_MS = 20000;
+
+function cachedGet(url, config) {
+  const cacheKey = `${url}:${JSON.stringify(config?.params || {})}`;
+  const cached = getCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  const promise = axios.get(url, config);
+  promise.catch(() => getCache.delete(cacheKey)); // don't cache failures
+  getCache.set(cacheKey, { promise, expiresAt: Date.now() + GET_CACHE_TTL_MS });
+  return promise;
+}
 
 async function getBalances(address, apiKey) {
   try {
@@ -9,8 +26,9 @@ async function getBalances(address, apiKey) {
     let totalUsdt = 0;
 
     // ETH balance via Etherscan
-    const ethRes = await axios.get(ETHERSCAN_BASE, {
+    const ethRes = await cachedGet(ETHERSCAN_BASE, {
       params: {
+        chainid: ETHERSCAN_CHAIN_ID,
         module: 'account',
         action: 'balance',
         address,
@@ -20,11 +38,15 @@ async function getBalances(address, apiKey) {
       timeout: 10000
     });
 
+    if (ethRes.data.status !== '1') {
+      throw new Error(ethRes.data.result || ethRes.data.message || 'Etherscan error');
+    }
+
     const ethBalance = parseFloat(ethRes.data.result) / 1e18;
 
     if (ethBalance > 0) {
       // Buscar preço ETH
-      const priceRes = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd', { timeout: 5000 });
+      const priceRes = await cachedGet('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd', { timeout: 5000 });
       const ethPrice = priceRes.data?.ethereum?.usd || 0;
       const valueUsdt = ethBalance * ethPrice;
       totalUsdt += valueUsdt;
@@ -43,8 +65,9 @@ async function getBalances(address, apiKey) {
     }
 
     // ERC-20 tokens via Etherscan
-    const tokensRes = await axios.get(ETHERSCAN_BASE, {
+    const tokensRes = await cachedGet(ETHERSCAN_BASE, {
       params: {
+        chainid: ETHERSCAN_CHAIN_ID,
         module: 'account',
         action: 'tokentx',
         address,
@@ -70,8 +93,9 @@ async function getBalances(address, apiKey) {
 
       for (const token of Object.values(tokenMap).slice(0, 10)) {
         try {
-          const balRes = await axios.get(ETHERSCAN_BASE, {
+          const balRes = await cachedGet(ETHERSCAN_BASE, {
             params: {
+              chainid: ETHERSCAN_CHAIN_ID,
               module: 'account',
               action: 'tokenbalance',
               contractaddress: token.contractAddress,
@@ -89,7 +113,7 @@ async function getBalances(address, apiKey) {
           let currentPrice = 0;
 
           try {
-            const cgRes = await axios.get(
+            const cgRes = await cachedGet(
               `https://api.coingecko.com/api/v3/simple/token_price/ethereum?contract_addresses=${token.contractAddress}&vs_currencies=usd`,
               { timeout: 5000 }
             );
@@ -145,4 +169,78 @@ async function getSpotPositions(address, apiKey) {
 
 async function getNetDeposits() { return 0; }
 
-module.exports = { getBalances, getPositions, getSpotPositions, getNetDeposits };
+// A wallet has no "buy/sell" concept — this returns raw on-chain transfers
+// (in/out) instead, with no P&L (cost basis isn't well-defined for a transfer).
+async function getTradeHistory(address, apiKey) {
+  const addrLower = address.toLowerCase();
+  const transfers = [];
+
+  const ethTxRes = await cachedGet(ETHERSCAN_BASE, {
+    params: {
+      chainid: ETHERSCAN_CHAIN_ID,
+      module: 'account',
+      action: 'txlist',
+      address,
+      startblock: 0,
+      endblock: 99999999,
+      sort: 'desc',
+      apikey: apiKey
+    },
+    timeout: 10000
+  });
+
+  if (!Array.isArray(ethTxRes.data.result)) {
+    throw new Error(ethTxRes.data.result || ethTxRes.data.message || 'Etherscan error');
+  }
+
+  ethTxRes.data.result.slice(0, 100).forEach(tx => {
+    const qty = parseFloat(tx.value) / 1e18;
+    if (qty <= 0) return;
+    transfers.push({
+      asset: 'ETH',
+      side: tx.to?.toLowerCase() === addrLower ? 'in' : 'out',
+      qty,
+      price: null,
+      pnl: null,
+      pnlPct: null,
+      date: new Date(parseInt(tx.timeStamp) * 1000).toISOString()
+    });
+  });
+
+  try {
+    const tokenTxRes = await cachedGet(ETHERSCAN_BASE, {
+      params: {
+        chainid: ETHERSCAN_CHAIN_ID,
+        module: 'account',
+        action: 'tokentx',
+        address,
+        startblock: 0,
+        endblock: 99999999,
+        sort: 'desc',
+        apikey: apiKey
+      },
+      timeout: 10000
+    });
+
+    if (Array.isArray(tokenTxRes.data.result)) {
+      tokenTxRes.data.result.slice(0, 100).forEach(tx => {
+        const decimals = parseInt(tx.tokenDecimal || '18');
+        const qty = parseFloat(tx.value) / Math.pow(10, decimals);
+        if (qty <= 0) return;
+        transfers.push({
+          asset: tx.tokenSymbol,
+          side: tx.to?.toLowerCase() === addrLower ? 'in' : 'out',
+          qty,
+          price: null,
+          pnl: null,
+          pnlPct: null,
+          date: new Date(parseInt(tx.timeStamp) * 1000).toISOString()
+        });
+      });
+    }
+  } catch (e) { /* token tx history unavailable */ }
+
+  return transfers.sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+module.exports = { getBalances, getPositions, getSpotPositions, getNetDeposits, getTradeHistory };

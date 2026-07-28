@@ -4,6 +4,14 @@
   box-sizing: border-box;
 }
 
+/* Reserve the vertical scrollbar's space on every page so the content width
+   (and centered .app container) doesn't shift between routes depending on
+   whether that page's content is tall enough to need a scrollbar. */
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
 body {
   background: #050508;
   color: #e2e8f0;
@@ -68,6 +76,69 @@ header h1 {
 .btn-settings:hover {
   border-color: #2d2d3a;
   color: #e2e8f0;
+}
+
+/* Currency Toggle */
+.currency-toggle {
+  display: flex;
+  background: #0c0c10;
+  border: 1px solid #18181f;
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.currency-toggle button {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  padding: 6px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.currency-toggle button.active {
+  background: #6366f1;
+  color: #fff;
+}
+
+.page-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  color: #64748b;
+  font-size: 14px;
+}
+
+/* App-level navigation (Dashboard / Alertas / Paper Trading) */
+.app-nav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.app-nav-link {
+  padding: 8px 16px;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.app-nav-link:hover {
+  color: #e2e8f0;
+  background: #0c0c10;
+}
+
+.app-nav-link.active {
+  color: #6366f1;
+  background: #6366f122;
 }
 
 /* Tabs */
@@ -704,6 +775,16 @@ tr:hover td { background: #0f0f18; color: #cbd5e1; }
     display: block;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+  }
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .app-nav {
+    flex-wrap: wrap;
+  }
+  .card-header {
+    flex-wrap: wrap;
+    gap: 8px;
   }
 }
 

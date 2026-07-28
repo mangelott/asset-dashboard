@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const axios = require('axios');
+const { computeRealizedPnl } = require('../utils/pnl');
 
 const BASE_URL = 'https://api.binance.com';
 const FUTURES_URL = 'https://fapi.binance.com';
@@ -14,21 +15,48 @@ function signRequest(secret, params) {
   };
 }
 
+// getBalances/getSpotPositions/getTradeHistory each independently re-fetch
+// /api/v3/account, /api/v3/ticker/price, and per-symbol /api/v3/myTrades on
+// every poll cycle. Cache in-flight/recent responses per (apiKey, endpoint,
+// params) so concurrent callers share one upstream call.
+const requestCache = new Map(); // cacheKey -> { promise, expiresAt }
+const REQUEST_CACHE_TTL_MS = 20000;
+
 async function request(baseUrl, apiKey, secret, endpoint, params = {}) {
-  const timestamp = Date.now();
-  const signedParams = signRequest(secret, { ...params, timestamp });
-  const queryString = new URLSearchParams(signedParams).toString();
-  const response = await axios.get(`${baseUrl}${endpoint}?${queryString}`, {
-    headers: { 'X-MBX-APIKEY': apiKey },
-    timeout: 10000
-  });
-  return response.data;
+  const cacheKey = `${apiKey}:${baseUrl}${endpoint}:${JSON.stringify(params)}`;
+  const cached = requestCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
+  const promise = (async () => {
+    const timestamp = Date.now();
+    const signedParams = signRequest(secret, { ...params, timestamp });
+    const queryString = new URLSearchParams(signedParams).toString();
+    const response = await axios.get(`${baseUrl}${endpoint}?${queryString}`, {
+      headers: { 'X-MBX-APIKEY': apiKey },
+      timeout: 10000
+    });
+    return response.data;
+  })();
+  promise.catch(() => requestCache.delete(cacheKey)); // don't cache failures
+  requestCache.set(cacheKey, { promise, expiresAt: Date.now() + REQUEST_CACHE_TTL_MS });
+  return promise;
+}
+
+const tickerPriceCache = { promise: null, expiresAt: 0 };
+
+function fetchAllTickerPrices() {
+  if (tickerPriceCache.promise && tickerPriceCache.expiresAt > Date.now()) return tickerPriceCache.promise;
+  const promise = axios.get(`${BASE_URL}/api/v3/ticker/price`, { timeout: 10000 });
+  promise.catch(() => { tickerPriceCache.promise = null; });
+  tickerPriceCache.promise = promise;
+  tickerPriceCache.expiresAt = Date.now() + REQUEST_CACHE_TTL_MS;
+  return promise;
 }
 
 async function getSpotBalances(apiKey, secret) {
   const [accountData, pricesData] = await Promise.all([
     request(BASE_URL, apiKey, secret, '/api/v3/account'),
-    axios.get(`${BASE_URL}/api/v3/ticker/price`, { timeout: 10000 })
+    fetchAllTickerPrices()
   ]);
 
   const priceMap = {};
@@ -118,12 +146,15 @@ async function getBalances(apiKey, secret) {
     getFuturesBalances(apiKey, secret)
   ]);
 
-  const spotData = spot.status === 'fulfilled' ? spot.value : { balances: [], totalUsdt: 0 };
+  // Spot balance failure almost always means invalid/revoked credentials — surface it.
+  // Futures failure is swallowed inside getFuturesBalances since many keys legitimately lack futures permission.
+  if (spot.status === 'rejected') throw spot.reason;
+
   const futuresData = futures.status === 'fulfilled' ? futures.value : { balances: [], totalUsdt: 0 };
 
   return {
-    balances: [...spotData.balances, ...futuresData.balances],
-    totalUsdt: spotData.totalUsdt + futuresData.totalUsdt
+    balances: [...spot.value.balances, ...futuresData.balances],
+    totalUsdt: spot.value.totalUsdt + futuresData.totalUsdt
   };
 }
 
@@ -132,7 +163,7 @@ const STABLECOINS = new Set(['USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'FDUSD', 'US
 async function getSpotPositions(apiKey, secret) {
   const [accountData, pricesData] = await Promise.all([
     request(BASE_URL, apiKey, secret, '/api/v3/account'),
-    axios.get(`${BASE_URL}/api/v3/ticker/price`, { timeout: 10000 })
+    fetchAllTickerPrices()
   ]);
 
   const priceMap = {};
@@ -183,4 +214,41 @@ async function getSpotPositions(apiKey, secret) {
 
 async function getNetDeposits() { return 0; }
 
-module.exports = { getBalances, getFuturesPositions, getSpotPositions, getNetDeposits };
+// Binance only exposes trade history per symbol, so coverage is limited to
+// assets currently (or recently, while still held) in the account.
+async function getTradeHistory(apiKey, secret) {
+  const [accountData, pricesData] = await Promise.all([
+    request(BASE_URL, apiKey, secret, '/api/v3/account'),
+    fetchAllTickerPrices()
+  ]);
+
+  const priceMap = {};
+  pricesData.data.forEach(p => { priceMap[p.symbol] = parseFloat(p.price); });
+
+  const holdings = accountData.balances.filter(b => {
+    const amount = parseFloat(b.free) + parseFloat(b.locked);
+    return amount > 0 && !STABLECOINS.has(b.asset);
+  });
+
+  const perAsset = await Promise.all(holdings.map(async b => {
+    const symbol = priceMap[`${b.asset}USDT`] ? `${b.asset}USDT` : priceMap[`${b.asset}USDC`] ? `${b.asset}USDC` : null;
+    if (!symbol) return [];
+    try {
+      const trades = await request(BASE_URL, apiKey, secret, '/api/v3/myTrades', { symbol, limit: 1000 });
+      const normalized = trades.map(t => ({
+        asset: b.asset,
+        side: t.isBuyer ? 'buy' : 'sell',
+        qty: parseFloat(t.qty),
+        price: parseFloat(t.price),
+        date: new Date(t.time).toISOString()
+      })).sort((a, c) => new Date(a.date) - new Date(c.date));
+      return computeRealizedPnl(normalized);
+    } catch (e) {
+      return [];
+    }
+  }));
+
+  return perAsset.flat().sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+module.exports = { getBalances, getFuturesPositions, getSpotPositions, getNetDeposits, getTradeHistory };

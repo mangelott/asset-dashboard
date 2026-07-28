@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const axios = require('axios');
+const { computeRealizedPnl } = require('../utils/pnl');
 
 const BASE_URL = 'https://api.coinbase.com';
 
@@ -8,24 +9,52 @@ function signRequest(secret, timestamp, method, path, body = '') {
   return crypto.createHmac('sha256', secret).update(message).digest('hex');
 }
 
-async function request(apiKey, secret, method, path, body = '') {
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const signature = signRequest(secret, timestamp, method, path, body);
+// getBalances/getSpotPositions/getTradeHistory each independently re-fetch
+// /v2/accounts (and per-account buy/sell history) on every poll cycle. Cache
+// in-flight/recent responses per (apiKey, method, path, body) so concurrent
+// callers share one upstream call.
+const requestCache = new Map(); // cacheKey -> { promise, expiresAt }
+const REQUEST_CACHE_TTL_MS = 20000;
 
-  const response = await axios({
-    method,
-    url: `${BASE_URL}${path}`,
-    headers: {
-      'CB-ACCESS-KEY': apiKey,
-      'CB-ACCESS-SIGN': signature,
-      'CB-ACCESS-TIMESTAMP': timestamp,
-      'CB-VERSION': '2016-02-18',
-      'Content-Type': 'application/json'
-    },
-    data: body || undefined,
-    timeout: 10000
-  });
-  return response.data;
+async function request(apiKey, secret, method, path, body = '') {
+  const cacheKey = `${apiKey}:${method}:${path}:${body}`;
+  const cached = requestCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
+  const promise = (async () => {
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const signature = signRequest(secret, timestamp, method, path, body);
+
+    const response = await axios({
+      method,
+      url: `${BASE_URL}${path}`,
+      headers: {
+        'CB-ACCESS-KEY': apiKey,
+        'CB-ACCESS-SIGN': signature,
+        'CB-ACCESS-TIMESTAMP': timestamp,
+        'CB-VERSION': '2016-02-18',
+        'Content-Type': 'application/json'
+      },
+      data: body || undefined,
+      timeout: 10000
+    });
+    return response.data;
+  })();
+  promise.catch(() => requestCache.delete(cacheKey)); // don't cache failures
+  requestCache.set(cacheKey, { promise, expiresAt: Date.now() + REQUEST_CACHE_TTL_MS });
+  return promise;
+}
+
+const priceCache = new Map(); // asset -> { promise, expiresAt }
+
+async function fetchCoinbaseSpotPrice(asset) {
+  const cached = priceCache.get(asset);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  const promise = axios.get(`${BASE_URL}/v2/prices/${asset}-USD/spot`, { timeout: 5000 })
+    .then(res => parseFloat(res.data.data.amount));
+  promise.catch(() => priceCache.delete(asset));
+  priceCache.set(asset, { promise, expiresAt: Date.now() + REQUEST_CACHE_TTL_MS });
+  return promise;
 }
 
 async function getBalances(apiKey, secret) {
@@ -48,8 +77,7 @@ async function getBalances(apiKey, secret) {
         currentPrice = 1;
       } else {
         try {
-          const priceData = await axios.get(`${BASE_URL}/v2/prices/${asset}-USD/spot`, { timeout: 5000 });
-          currentPrice = parseFloat(priceData.data.data.amount);
+          currentPrice = await fetchCoinbaseSpotPrice(asset);
           valueUsdt = amount * currentPrice;
         } catch (e) { }
       }
@@ -103,8 +131,7 @@ async function getSpotPositions(apiKey, secret) {
 
     let currentPrice = 0, valueUsdt = 0;
     try {
-      const priceData = await axios.get(`${BASE_URL}/v2/prices/${asset}-USD/spot`, { timeout: 5000 });
-      currentPrice = parseFloat(priceData.data.data.amount);
+      currentPrice = await fetchCoinbaseSpotPrice(asset);
       valueUsdt = qty * currentPrice;
     } catch (e) {}
 
@@ -156,4 +183,42 @@ async function getSpotPositions(apiKey, secret) {
 
 async function getNetDeposits() { return 0; }
 
-module.exports = { getBalances, getPositions, getSpotPositions, getNetDeposits };
+// Coinbase only exposes buy/sell history per account, so coverage is limited
+// to assets currently (or recently, while still held) in the account.
+async function getTradeHistory(apiKey, secret) {
+  const accountsData = await request(apiKey, secret, 'GET', '/v2/accounts');
+  const accounts = (accountsData.data || []).filter(acc => {
+    const amount = parseFloat(acc.balance.amount);
+    return amount > 0 && !CB_STABLECOINS.has(acc.balance.currency);
+  });
+
+  function normalize(orders, side, asset) {
+    return orders.map(o => {
+      const qty = parseFloat(o.amount?.amount || 0);
+      const price = parseFloat(o.unit_price?.amount || 0) ||
+        (o.subtotal?.amount && qty > 0 ? parseFloat(o.subtotal.amount) / qty : 0);
+      return { asset, side, qty, price, date: new Date(o.created_at).toISOString() };
+    }).filter(t => t.qty > 0 && t.price > 0);
+  }
+
+  const perAsset = await Promise.all(accounts.map(async acc => {
+    const asset = acc.balance.currency;
+    try {
+      const [buys, sells] = await Promise.all([
+        getCoinbaseOrderSide(apiKey, secret, acc.id, 'buy'),
+        getCoinbaseOrderSide(apiKey, secret, acc.id, 'sell')
+      ]);
+
+      const normalized = [...normalize(buys, 'buy', asset), ...normalize(sells, 'sell', asset)]
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      return computeRealizedPnl(normalized);
+    } catch (e) {
+      return [];
+    }
+  }));
+
+  return perAsset.flat().sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+module.exports = { getBalances, getPositions, getSpotPositions, getNetDeposits, getTradeHistory };
