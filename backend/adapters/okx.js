@@ -158,6 +158,8 @@ async function getSpotPositions(apiKey, secret, passphrase) {
   return positions.filter(Boolean);
 }
 
+async function getNetDeposits() { return 0; }
+
 // OKX only exposes fills per instrument, so coverage is limited to assets
 // currently (or recently, while still held) in the account.
 async function getTradeHistory(apiKey, secret, passphrase) {
@@ -185,4 +187,4 @@ async function getTradeHistory(apiKey, secret, passphrase) {
   return perAsset.flat().sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
-module.exports = { getBalances, getPositions, getSpotPositions, getTradeHistory };
+module.exports = { getBalances, getPositions, getSpotPositions, getNetDeposits, getTradeHistory };

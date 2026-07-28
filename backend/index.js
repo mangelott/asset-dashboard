@@ -7,13 +7,13 @@ const cors = require('cors');
 const cron = require('node-cron');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const { getBalances: getBinanceBalances, getFuturesPositions: getBinancePositions, getSpotPositions: getBinanceSpotPositions, getTradeHistory: getBinanceTradeHistory } = require('./adapters/binance');
-const { getBalances: getBybitBalances, getPositions: getBybitPositions, getSpotPositions: getBybitSpotPositions, getTradeHistory: getBybitTradeHistory } = require('./adapters/bybit');
-const { getBalances: getCoinbaseBalances, getPositions: getCoinbasePositions, getSpotPositions: getCoinbaseSpotPositions, getTradeHistory: getCoinbaseTradeHistory } = require('./adapters/coinbase');
-const { getBalances: getKrakenBalances, getPositions: getKrakenPositions, getSpotPositions: getKrakenSpotPositions, getTradeHistory: getKrakenTradeHistory } = require('./adapters/kraken');
-const { getBalances: getOkxBalances, getPositions: getOkxPositions, getSpotPositions: getOkxSpotPositions, getTradeHistory: getOkxTradeHistory } = require('./adapters/okx');
-const { getBalances: getWalletBalances, getPositions: getWalletPositions, getSpotPositions: getWalletSpotPositions, getTradeHistory: getWalletTradeHistory } = require('./adapters/wallet_eth');
-const { getBalances: getT212Balances, getPositions: getT212Positions, getSpotPositions: getT212SpotPositions, getTradeHistory: getT212TradeHistory } = require('./adapters/trading212');
+const { getBalances: getBinanceBalances, getFuturesPositions: getBinancePositions, getSpotPositions: getBinanceSpotPositions, getNetDeposits: getBinanceDeposits, getTradeHistory: getBinanceTradeHistory } = require('./adapters/binance');
+const { getBalances: getBybitBalances, getPositions: getBybitPositions, getSpotPositions: getBybitSpotPositions, getNetDeposits: getBybitDeposits, getTradeHistory: getBybitTradeHistory } = require('./adapters/bybit');
+const { getBalances: getCoinbaseBalances, getPositions: getCoinbasePositions, getSpotPositions: getCoinbaseSpotPositions, getNetDeposits: getCoinbaseDeposits, getTradeHistory: getCoinbaseTradeHistory } = require('./adapters/coinbase');
+const { getBalances: getKrakenBalances, getPositions: getKrakenPositions, getSpotPositions: getKrakenSpotPositions, getNetDeposits: getKrakenDeposits, getTradeHistory: getKrakenTradeHistory } = require('./adapters/kraken');
+const { getBalances: getOkxBalances, getPositions: getOkxPositions, getSpotPositions: getOkxSpotPositions, getNetDeposits: getOkxDeposits, getTradeHistory: getOkxTradeHistory } = require('./adapters/okx');
+const { getBalances: getWalletBalances, getPositions: getWalletPositions, getSpotPositions: getWalletSpotPositions, getNetDeposits: getWalletDeposits, getTradeHistory: getWalletTradeHistory } = require('./adapters/wallet_eth');
+const { getBalances: getT212Balances, getPositions: getT212Positions, getSpotPositions: getT212SpotPositions, getNetDeposits: getT212Deposits, getTradeHistory: getT212TradeHistory } = require('./adapters/trading212');
 const db = require('./database');
 const telegram = require('./services/telegram');
 const alertEngine = require('./services/alertEngine');
@@ -30,13 +30,13 @@ app.use(express.json());
 
 // ─── Adapter Registry ─────────────────────────────────────
 const ADAPTERS = {
-  binance: { getBalances: getBinanceBalances, getPositions: getBinancePositions, getSpotPositions: getBinanceSpotPositions, getTradeHistory: getBinanceTradeHistory },
-  bybit: { getBalances: getBybitBalances, getPositions: getBybitPositions, getSpotPositions: getBybitSpotPositions, getTradeHistory: getBybitTradeHistory },
-  coinbase: { getBalances: getCoinbaseBalances, getPositions: getCoinbasePositions, getSpotPositions: getCoinbaseSpotPositions, getTradeHistory: getCoinbaseTradeHistory },
-  kraken: { getBalances: getKrakenBalances, getPositions: getKrakenPositions, getSpotPositions: getKrakenSpotPositions, getTradeHistory: getKrakenTradeHistory },
-  okx: { getBalances: getOkxBalances, getPositions: getOkxPositions, getSpotPositions: getOkxSpotPositions, getTradeHistory: getOkxTradeHistory },
-  wallet_eth: { getBalances: getWalletBalances, getPositions: getWalletPositions, getSpotPositions: getWalletSpotPositions, getTradeHistory: getWalletTradeHistory },
-  trading212: { getBalances: getT212Balances, getPositions: getT212Positions, getSpotPositions: getT212SpotPositions, getTradeHistory: getT212TradeHistory }
+  binance: { getBalances: getBinanceBalances, getPositions: getBinancePositions, getSpotPositions: getBinanceSpotPositions, getNetDeposits: getBinanceDeposits, getTradeHistory: getBinanceTradeHistory },
+  bybit: { getBalances: getBybitBalances, getPositions: getBybitPositions, getSpotPositions: getBybitSpotPositions, getNetDeposits: getBybitDeposits, getTradeHistory: getBybitTradeHistory },
+  coinbase: { getBalances: getCoinbaseBalances, getPositions: getCoinbasePositions, getSpotPositions: getCoinbaseSpotPositions, getNetDeposits: getCoinbaseDeposits, getTradeHistory: getCoinbaseTradeHistory },
+  kraken: { getBalances: getKrakenBalances, getPositions: getKrakenPositions, getSpotPositions: getKrakenSpotPositions, getNetDeposits: getKrakenDeposits, getTradeHistory: getKrakenTradeHistory },
+  okx: { getBalances: getOkxBalances, getPositions: getOkxPositions, getSpotPositions: getOkxSpotPositions, getNetDeposits: getOkxDeposits, getTradeHistory: getOkxTradeHistory },
+  wallet_eth: { getBalances: getWalletBalances, getPositions: getWalletPositions, getSpotPositions: getWalletSpotPositions, getNetDeposits: getWalletDeposits, getTradeHistory: getWalletTradeHistory },
+  trading212: { getBalances: getT212Balances, getPositions: getT212Positions, getSpotPositions: getT212SpotPositions, getNetDeposits: getT212Deposits, getTradeHistory: getT212TradeHistory }
 };
 
 // ─── Helpers ──────────────────────────────────────────────
@@ -648,6 +648,80 @@ cron.schedule('0 0 * * *', async () => {
     }
     console.log(`Auto snapshots saved: ${today}`);
   } catch (e) { console.error('Auto snapshot error:', e.message); }
+});
+
+// ─── Net Deposits ─────────────────────────────────────────
+async function fetchExchangeDeposits(exchange, since) {
+  const adapter = ADAPTERS[exchange.type];
+  let apiDeposits = 0;
+  if (adapter?.getNetDeposits) {
+    try {
+      if (exchange.type === 'okx') apiDeposits = await adapter.getNetDeposits(exchange.api_key, exchange.api_secret, exchange.passphrase, since);
+      else apiDeposits = await adapter.getNetDeposits(exchange.api_key, exchange.api_secret, since);
+    } catch (e) {
+      console.error(`[${exchange.name}] API deposits error:`, e.message);
+    }
+  }
+  const manualTotal = await db.getTotalManualDeposits(exchange.user_id, exchange.id, since);
+  return apiDeposits + manualTotal;
+}
+
+app.get('/api/exchange/:id/net-deposits', auth, async (req, res) => {
+  try {
+    const { since } = req.query;
+    const exchange = await db.getExchangeById(req.user.userId, req.params.id);
+    if (!exchange) return res.status(404).json({ error: 'Exchange not found' });
+    const totalDeposits = await fetchExchangeDeposits(exchange, since);
+    res.json({ totalDeposits });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/global/net-deposits', auth, async (req, res) => {
+  try {
+    const { since } = req.query;
+    const list = await db.getAllExchanges(req.user.userId);
+    const exchanges = await Promise.all(list.map(e => db.getExchangeById(req.user.userId, e.id)));
+    const results = await Promise.allSettled(exchanges.map(ex => fetchExchangeDeposits(ex, since)));
+
+    let totalDeposits = 0;
+    const byExchange = {};
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        totalDeposits += r.value;
+        byExchange[exchanges[i].name] = r.value;
+      } else {
+        console.error(`[${exchanges[i]?.name}] deposits error:`, r.reason?.message);
+        byExchange[exchanges[i].name] = 0;
+      }
+    });
+
+    res.json({ totalDeposits, byExchange });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── Manual Deposits CRUD ──────────────────────────────────
+app.get('/api/exchanges/:id/deposits', auth, async (req, res) => {
+  try {
+    const deposits = await db.getManualDeposits(req.user.userId, req.params.id);
+    res.json(deposits);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/exchanges/:id/deposits', auth, async (req, res) => {
+  try {
+    const { amount, date, note } = req.body;
+    const parsed = parseFloat(amount);
+    if (!parsed || parsed <= 0) return res.status(400).json({ error: 'Valid amount required' });
+    const deposit = await db.addManualDeposit(req.user.userId, req.params.id, parsed, date || null, note || '');
+    res.json(deposit);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/deposits/:depositId', auth, async (req, res) => {
+  try {
+    await db.deleteManualDeposit(req.user.userId, parseInt(req.params.depositId));
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─── Alert checker (cron) ─────────────────────────────────

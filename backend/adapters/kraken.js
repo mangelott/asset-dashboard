@@ -230,6 +230,43 @@ async function getSpotPositions(apiKey, secret) {
   });
 }
 
+async function getNetDeposits(apiKey, secret, since = null) {
+  let eurUsd = 1.08;
+  try {
+    const fx = await axios.get('https://api.frankfurter.app/latest?from=EUR&to=USD', { timeout: 5000 });
+    eurUsd = fx.data.rates?.USD || eurUsd;
+  } catch (e) {}
+
+  const sinceUnix = since ? Math.floor(new Date(since).getTime() / 1000) : null;
+  let total = 0;
+  let offset = 0;
+
+  for (let page = 0; page < 20; page++) {
+    try {
+      const params = { type: 'deposit', ofs: offset };
+      if (sinceUnix) params.start = sinceUnix;
+      const data = await request(apiKey, secret, '/0/private/Ledgers', params);
+      const entries = Object.values(data.ledger || {});
+      if (!entries.length) break;
+
+      for (const entry of entries) {
+        const amount = parseFloat(entry.amount);
+        if (amount <= 0) continue;
+        if (['ZUSD', 'USDT', 'USDC'].includes(entry.asset)) total += amount;
+        else if (entry.asset === 'ZEUR') total += amount * eurUsd;
+      }
+
+      if (entries.length < 50) break;
+      offset += 50;
+    } catch (e) {
+      console.error('Kraken getNetDeposits error:', e.message);
+      break;
+    }
+  }
+
+  return total;
+}
+
 // Kraken's TradesHistory is account-wide (not limited to currently-held
 // assets), so this gives the best coverage among all adapters.
 async function getTradeHistory(apiKey, secret) {
@@ -259,4 +296,4 @@ async function getTradeHistory(apiKey, secret) {
   return result.sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
-module.exports = { getBalances, getPositions, getSpotPositions, getTradeHistory };
+module.exports = { getBalances, getPositions, getSpotPositions, getNetDeposits, getTradeHistory };

@@ -212,6 +212,8 @@ async function getSpotPositions(apiKey, secret) {
   return positions.filter(Boolean);
 }
 
+async function getNetDeposits() { return 0; }
+
 // Binance only exposes trade history per symbol, so coverage is limited to
 // assets currently (or recently, while still held) in the account.
 async function getTradeHistory(apiKey, secret) {
@@ -249,4 +251,4 @@ async function getTradeHistory(apiKey, secret) {
   return perAsset.flat().sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
-module.exports = { getBalances, getFuturesPositions, getSpotPositions, getTradeHistory };
+module.exports = { getBalances, getFuturesPositions, getSpotPositions, getNetDeposits, getTradeHistory };

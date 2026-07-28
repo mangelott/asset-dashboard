@@ -147,6 +147,8 @@ async function getSpotPositions(apiKey, apiSecret) {
   }
 }
 
+async function getNetDeposits() { return 0; }
+
 // Trading 212's order history endpoint is account-wide (not limited to
 // currently-held tickers), giving broad coverage like Kraken.
 async function getTradeHistory(apiKey, apiSecret) {
@@ -166,8 +168,6 @@ async function getTradeHistory(apiKey, apiSecret) {
       cursor = match ? match[1] : null;
       if (!cursor) break;
     } catch (e) {
-      // First page failing means the request itself is broken (bad key, network) —
-      // surface it. A later page failing after some data was already fetched is tolerated.
       if (page === 0) throw e;
       break;
     }
@@ -203,4 +203,4 @@ async function getTradeHistory(apiKey, apiSecret) {
   return result.sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
-module.exports = { getBalances, getPositions, getSpotPositions, getTradeHistory };
+module.exports = { getBalances, getPositions, getSpotPositions, getNetDeposits, getTradeHistory };

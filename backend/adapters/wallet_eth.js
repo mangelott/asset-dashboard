@@ -167,6 +167,8 @@ async function getSpotPositions(address, apiKey) {
     }));
 }
 
+async function getNetDeposits() { return 0; }
+
 // A wallet has no "buy/sell" concept — this returns raw on-chain transfers
 // (in/out) instead, with no P&L (cost basis isn't well-defined for a transfer).
 async function getTradeHistory(address, apiKey) {
@@ -187,9 +189,6 @@ async function getTradeHistory(address, apiKey) {
     timeout: 10000
   });
 
-  // Etherscan returns result as an array even when there are zero transactions
-  // (status "0" / "No transactions found") — a non-array result means a real
-  // error (bad key, invalid address, rate limit), which must be surfaced.
   if (!Array.isArray(ethTxRes.data.result)) {
     throw new Error(ethTxRes.data.result || ethTxRes.data.message || 'Etherscan error');
   }
@@ -244,4 +243,4 @@ async function getTradeHistory(address, apiKey) {
   return transfers.sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
-module.exports = { getBalances, getPositions, getSpotPositions, getTradeHistory };
+module.exports = { getBalances, getPositions, getSpotPositions, getNetDeposits, getTradeHistory };

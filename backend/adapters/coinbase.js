@@ -181,6 +181,8 @@ async function getSpotPositions(apiKey, secret) {
   return positions.filter(Boolean);
 }
 
+async function getNetDeposits() { return 0; }
+
 // Coinbase only exposes buy/sell history per account, so coverage is limited
 // to assets currently (or recently, while still held) in the account.
 async function getTradeHistory(apiKey, secret) {
@@ -219,4 +221,4 @@ async function getTradeHistory(apiKey, secret) {
   return perAsset.flat().sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
-module.exports = { getBalances, getPositions, getSpotPositions, getTradeHistory };
+module.exports = { getBalances, getPositions, getSpotPositions, getNetDeposits, getTradeHistory };

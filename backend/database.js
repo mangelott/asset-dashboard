@@ -57,6 +57,16 @@ async function initDB() {
       UNIQUE(user_id, exchange_id, date)
     );
 
+    CREATE TABLE IF NOT EXISTS exchange_deposits (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      exchange_id VARCHAR(255) NOT NULL,
+      amount_usd DECIMAL(20, 2) NOT NULL,
+      deposit_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      note VARCHAR(255) DEFAULT '',
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS share_links (
       user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       token VARCHAR(64) UNIQUE NOT NULL,
@@ -232,6 +242,23 @@ async function getSnapshotsByExchangeId(userId, exchangeId) {
   return rows;
 }
 
+// ─── Manual Deposits ──────────────────────────────────────
+async function addManualDeposit(userId, exchangeId, amountUsd, depositDate, note = '') {
+  const { rows } = await pool.query(
+    'INSERT INTO exchange_deposits (user_id, exchange_id, amount_usd, deposit_date, note) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+    [userId, exchangeId, amountUsd, depositDate || new Date().toISOString().split('T')[0], note]
+  );
+  return rows[0];
+}
+
+async function getManualDeposits(userId, exchangeId) {
+  const { rows } = await pool.query(
+    'SELECT * FROM exchange_deposits WHERE user_id = $1 AND exchange_id = $2 ORDER BY deposit_date ASC',
+    [userId, exchangeId]
+  );
+  return rows;
+}
+
 // ─── Share Links ──────────────────────────────────────────
 async function upsertShareLink(userId, token, showValues) {
   const { rows } = await pool.query(`
@@ -313,6 +340,18 @@ async function getPriceAlertsByUserId(userId) {
     [userId]
   );
   return rows;
+}
+
+async function getTotalManualDeposits(userId, exchangeId, since = null) {
+  const params = [userId, exchangeId];
+  let query = 'SELECT COALESCE(SUM(amount_usd), 0) AS total FROM exchange_deposits WHERE user_id = $1 AND exchange_id = $2';
+  if (since) { query += ' AND deposit_date >= $3'; params.push(since); }
+  const { rows } = await pool.query(query, params);
+  return parseFloat(rows[0].total);
+}
+
+async function deleteManualDeposit(userId, depositId) {
+  await pool.query('DELETE FROM exchange_deposits WHERE id = $1 AND user_id = $2', [depositId, userId]);
 }
 
 async function getAllActivePriceAlerts() {
@@ -516,6 +555,10 @@ module.exports = {
   deleteExchange,
   saveDailySnapshot,
   getSnapshotsByExchangeId,
+  addManualDeposit,
+  getManualDeposits,
+  getTotalManualDeposits,
+  deleteManualDeposit,
   upsertShareLink,
   getShareLinkByUserId,
   getShareLinkByToken,

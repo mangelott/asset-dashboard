@@ -49,6 +49,7 @@ function Dashboard({ exchange, isGlobal }) {
   const [saving, setSaving] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(cached?.lastUpdated || null)
   const [balanceError, setBalanceError] = useState(null)
+  const [netDeposits, setNetDeposits] = useState(null)
 
   const exchangeType = isGlobal ? 'global' : exchange?.type
   const color = EXCHANGE_TYPES[exchangeType]?.color || '#6366f1'
@@ -58,6 +59,7 @@ function Dashboard({ exchange, isGlobal }) {
   }
 
   const accountUrl = isGlobal ? `${API}/api/global/account` : `${API}/api/exchange/${exchangeId}/account`
+  const depositsUrl = isGlobal ? `${API}/api/global/net-deposits` : `${API}/api/exchange/${exchangeId}/net-deposits`
   const positionsUrl = isGlobal ? `${API}/api/global/positions` : `${API}/api/exchange/${exchangeId}/positions`
   const spotPositionsUrl = isGlobal ? `${API}/api/global/spot-positions` : `${API}/api/exchange/${exchangeId}/spot-positions`
   const transactionsUrl = isGlobal ? `${API}/api/global/transactions` : `${API}/api/exchange/${exchangeId}/transactions`
@@ -122,12 +124,24 @@ function Dashboard({ exchange, isGlobal }) {
     }
   }
 
+  async function fetchNetDeposits(since) {
+    try {
+      const url = since ? `${depositsUrl}?since=${since}` : depositsUrl
+      const res = await axios.get(url)
+      setNetDeposits(res.data?.totalDeposits ?? 0)
+    } catch (e) {
+      console.error('Deposits error:', e.message)
+      setNetDeposits(0)
+    }
+  }
+
   async function fetchSnapshots() {
     try {
       const res = await axios.get(`${API}/api/snapshots/${exchangeId}`)
       const snapshots = res.data || []
       setSnapshots(snapshots)
       updateCache({ snapshots })
+      if (snapshots.length > 0) fetchNetDeposits(snapshots[0].date)
     } catch (e) { console.error('Snapshots error:', e.message) }
   }
 
@@ -187,8 +201,9 @@ function Dashboard({ exchange, isGlobal }) {
   }))
 
   const firstValue = snapshots.length > 0 ? parseFloat(snapshots[0].total_value_usdt) : 0
-  const totalPnl = totalUsdt - firstValue
-  const totalPnlPct = firstValue > 0 ? ((totalPnl / firstValue) * 100).toFixed(2) : 0
+  const deposits = netDeposits ?? 0
+  const totalPnl = totalUsdt - firstValue - deposits
+  const totalPnlPct = firstValue > 0 ? ((totalPnl / (firstValue + deposits)) * 100).toFixed(2) : 0
   const today = new Date().toISOString().split('T')[0]
   const lastSnapshot = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null
   const prevSnapshot = snapshots.length > 1 ? snapshots[snapshots.length - 2] : null
@@ -217,9 +232,11 @@ function Dashboard({ exchange, isGlobal }) {
         <div className="stat-card">
           <span className="label">Historical P&L</span>
           <span className="value" style={{ color: totalPnl >= 0 ? '#22c55e' : '#ef4444' }}>
-            {totalPnl >= 0 ? '+' : ''}{formatMoney(totalPnl)}
+            {netDeposits === null ? '...' : (totalPnl >= 0 ? '+' : '') + formatMoney(totalPnl)}
           </span>
-          <span className="badge">since first snapshot</span>
+          <span className="badge">
+            {netDeposits === null ? 'loading deposits...' : deposits > 0 ? `excl. ${deposits.toFixed(0)}$ deposits` : 'since first snapshot'}
+          </span>
         </div>
         <div className="stat-card">
           <span className="label">Futures P&L (open)</span>
