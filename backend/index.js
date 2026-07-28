@@ -6,13 +6,13 @@ const cors = require('cors');
 const cron = require('node-cron');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const { getBalances: getBinanceBalances, getFuturesPositions: getBinancePositions, getSpotPositions: getBinanceSpotPositions } = require('./adapters/binance');
-const { getBalances: getBybitBalances, getPositions: getBybitPositions, getSpotPositions: getBybitSpotPositions } = require('./adapters/bybit');
-const { getBalances: getCoinbaseBalances, getPositions: getCoinbasePositions, getSpotPositions: getCoinbaseSpotPositions } = require('./adapters/coinbase');
-const { getBalances: getKrakenBalances, getPositions: getKrakenPositions, getSpotPositions: getKrakenSpotPositions } = require('./adapters/kraken');
-const { getBalances: getOkxBalances, getPositions: getOkxPositions, getSpotPositions: getOkxSpotPositions } = require('./adapters/okx');
-const { getBalances: getWalletBalances, getPositions: getWalletPositions, getSpotPositions: getWalletSpotPositions } = require('./adapters/wallet_eth');
-const { getBalances: getT212Balances, getPositions: getT212Positions, getSpotPositions: getT212SpotPositions } = require('./adapters/trading212');
+const { getBalances: getBinanceBalances, getFuturesPositions: getBinancePositions, getSpotPositions: getBinanceSpotPositions, getNetDeposits: getBinanceDeposits } = require('./adapters/binance');
+const { getBalances: getBybitBalances, getPositions: getBybitPositions, getSpotPositions: getBybitSpotPositions, getNetDeposits: getBybitDeposits } = require('./adapters/bybit');
+const { getBalances: getCoinbaseBalances, getPositions: getCoinbasePositions, getSpotPositions: getCoinbaseSpotPositions, getNetDeposits: getCoinbaseDeposits } = require('./adapters/coinbase');
+const { getBalances: getKrakenBalances, getPositions: getKrakenPositions, getSpotPositions: getKrakenSpotPositions, getNetDeposits: getKrakenDeposits } = require('./adapters/kraken');
+const { getBalances: getOkxBalances, getPositions: getOkxPositions, getSpotPositions: getOkxSpotPositions, getNetDeposits: getOkxDeposits } = require('./adapters/okx');
+const { getBalances: getWalletBalances, getPositions: getWalletPositions, getSpotPositions: getWalletSpotPositions, getNetDeposits: getWalletDeposits } = require('./adapters/wallet_eth');
+const { getBalances: getT212Balances, getPositions: getT212Positions, getSpotPositions: getT212SpotPositions, getNetDeposits: getT212Deposits } = require('./adapters/trading212');
 const db = require('./database');
 
 const app = express();
@@ -23,13 +23,13 @@ app.use(express.json());
 
 // ─── Adapter Registry ─────────────────────────────────────
 const ADAPTERS = {
-  binance: { getBalances: getBinanceBalances, getPositions: getBinancePositions, getSpotPositions: getBinanceSpotPositions },
-  bybit: { getBalances: getBybitBalances, getPositions: getBybitPositions, getSpotPositions: getBybitSpotPositions },
-  coinbase: { getBalances: getCoinbaseBalances, getPositions: getCoinbasePositions, getSpotPositions: getCoinbaseSpotPositions },
-  kraken: { getBalances: getKrakenBalances, getPositions: getKrakenPositions, getSpotPositions: getKrakenSpotPositions },
-  okx: { getBalances: getOkxBalances, getPositions: getOkxPositions, getSpotPositions: getOkxSpotPositions },
-  wallet_eth: { getBalances: getWalletBalances, getPositions: getWalletPositions, getSpotPositions: getWalletSpotPositions },
-  trading212: { getBalances: getT212Balances, getPositions: getT212Positions, getSpotPositions: getT212SpotPositions }
+  binance: { getBalances: getBinanceBalances, getPositions: getBinancePositions, getSpotPositions: getBinanceSpotPositions, getNetDeposits: getBinanceDeposits },
+  bybit: { getBalances: getBybitBalances, getPositions: getBybitPositions, getSpotPositions: getBybitSpotPositions, getNetDeposits: getBybitDeposits },
+  coinbase: { getBalances: getCoinbaseBalances, getPositions: getCoinbasePositions, getSpotPositions: getCoinbaseSpotPositions, getNetDeposits: getCoinbaseDeposits },
+  kraken: { getBalances: getKrakenBalances, getPositions: getKrakenPositions, getSpotPositions: getKrakenSpotPositions, getNetDeposits: getKrakenDeposits },
+  okx: { getBalances: getOkxBalances, getPositions: getOkxPositions, getSpotPositions: getOkxSpotPositions, getNetDeposits: getOkxDeposits },
+  wallet_eth: { getBalances: getWalletBalances, getPositions: getWalletPositions, getSpotPositions: getWalletSpotPositions, getNetDeposits: getWalletDeposits },
+  trading212: { getBalances: getT212Balances, getPositions: getT212Positions, getSpotPositions: getT212SpotPositions, getNetDeposits: getT212Deposits }
 };
 
 // ─── Helpers ──────────────────────────────────────────────
@@ -262,6 +262,47 @@ cron.schedule('0 0 * * *', async () => {
     }
     console.log(`Auto snapshots saved: ${today}`);
   } catch (e) { console.error('Auto snapshot error:', e.message); }
+});
+
+// ─── Net Deposits ─────────────────────────────────────────
+async function fetchExchangeDeposits(exchange, since) {
+  const adapter = ADAPTERS[exchange.type];
+  if (!adapter?.getNetDeposits) return 0;
+  if (exchange.type === 'okx') return adapter.getNetDeposits(exchange.api_key, exchange.api_secret, exchange.passphrase, since);
+  return adapter.getNetDeposits(exchange.api_key, exchange.api_secret, since);
+}
+
+app.get('/api/exchange/:id/net-deposits', auth, async (req, res) => {
+  try {
+    const { since } = req.query;
+    const exchange = await db.getExchangeById(req.user.userId, req.params.id);
+    if (!exchange) return res.status(404).json({ error: 'Exchange not found' });
+    const totalDeposits = await fetchExchangeDeposits(exchange, since);
+    res.json({ totalDeposits });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/global/net-deposits', auth, async (req, res) => {
+  try {
+    const { since } = req.query;
+    const list = await db.getAllExchanges(req.user.userId);
+    const exchanges = await Promise.all(list.map(e => db.getExchangeById(req.user.userId, e.id)));
+    const results = await Promise.allSettled(exchanges.map(ex => fetchExchangeDeposits(ex, since)));
+
+    let totalDeposits = 0;
+    const byExchange = {};
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        totalDeposits += r.value;
+        byExchange[exchanges[i].name] = r.value;
+      } else {
+        console.error(`[${exchanges[i]?.name}] deposits error:`, r.reason?.message);
+        byExchange[exchanges[i].name] = 0;
+      }
+    });
+
+    res.json({ totalDeposits, byExchange });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));

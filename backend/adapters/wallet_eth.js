@@ -143,4 +143,6 @@ async function getSpotPositions(address, apiKey) {
     }));
 }
 
-module.exports = { getBalances, getPositions, getSpotPositions };
+async function getNetDeposits() { return 0; }
+
+module.exports = { getBalances, getPositions, getSpotPositions, getNetDeposits };

@@ -181,4 +181,6 @@ async function getSpotPositions(apiKey, secret) {
   return positions.filter(Boolean);
 }
 
-module.exports = { getBalances, getFuturesPositions, getSpotPositions };
+async function getNetDeposits() { return 0; }
+
+module.exports = { getBalances, getFuturesPositions, getSpotPositions, getNetDeposits };

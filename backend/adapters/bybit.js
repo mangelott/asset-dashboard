@@ -168,4 +168,41 @@ async function getSpotPositions(apiKey, secret) {
   return positions.filter(Boolean);
 }
 
-module.exports = { getBalances, getPositions, getSpotPositions };
+async function getNetDeposits(apiKey, secret, since = null) {
+  const STABLECOINS = new Set(['USDT', 'USDC', 'BUSD', 'DAI', 'USDD']);
+  try {
+    const params = { limit: 50 };
+    if (since) params.startTime = String(new Date(since).getTime());
+
+    const data = await request(apiKey, secret, '/v5/asset/deposit/query-record', params);
+    if (!data.result?.rows) return 0;
+
+    let total = 0;
+    const priceCache = {};
+
+    for (const row of data.result.rows) {
+      if (parseInt(row.status) !== 3) continue;
+      const amount = parseFloat(row.amount || 0);
+      const coin = row.coin;
+
+      if (STABLECOINS.has(coin)) {
+        total += amount;
+      } else {
+        if (!priceCache[coin]) {
+          try {
+            const res = await axios.get(`${BASE_URL}/v5/market/tickers?category=spot&symbol=${coin}USDT`, { timeout: 5000 });
+            priceCache[coin] = parseFloat(res.data.result?.list?.[0]?.lastPrice || 0);
+          } catch (e) { priceCache[coin] = 0; }
+        }
+        total += amount * (priceCache[coin] || 0);
+      }
+    }
+
+    return total;
+  } catch (e) {
+    console.error('Bybit getNetDeposits error:', e.message);
+    return 0;
+  }
+}
+
+module.exports = { getBalances, getPositions, getSpotPositions, getNetDeposits };
