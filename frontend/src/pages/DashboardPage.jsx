@@ -12,6 +12,7 @@ import BalancesTable from '../components/BalancesTable'
 import TransactionsTable from '../components/TransactionsTable'
 import SettingsModal from '../components/SettingsModal'
 import AppNav from '../components/AppNav'
+import RealizedPnlPanel from '../components/RealizedPnlPanel'
 
 // Survives tab remounts (the Dashboard below is remounted on every tab switch via
 // its `key` prop) so revisiting a tab shows the last-known data instantly instead
@@ -50,6 +51,11 @@ function Dashboard({ exchange, isGlobal }) {
   const [lastUpdated, setLastUpdated] = useState(cached?.lastUpdated || null)
   const [balanceError, setBalanceError] = useState(null)
   const [netDeposits, setNetDeposits] = useState(null)
+  const [activeTab, setActiveTab] = useState('balances')
+  const [benchmark, setBenchmark] = useState(null)
+  const [showBenchmark, setShowBenchmark] = useState(false)
+  const [intradaySnapshots, setIntradaySnapshots] = useState([])
+  const [chartMode, setChartMode] = useState('daily')
 
   const exchangeType = isGlobal ? 'global' : exchange?.type
   const color = EXCHANGE_TYPES[exchangeType]?.color || '#6366f1'
@@ -142,7 +148,24 @@ function Dashboard({ exchange, isGlobal }) {
       setSnapshots(snapshots)
       updateCache({ snapshots })
       if (snapshots.length > 0) fetchNetDeposits(snapshots[0].date)
+      if (snapshots.length > 0) fetchBenchmark(snapshots[0].date)
     } catch (e) { console.error('Snapshots error:', e.message) }
+  }
+
+  async function fetchBenchmark(sinceDate) {
+    try {
+      const from = sinceDate || new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString().split('T')[0]
+      const res = await axios.get(`${API}/api/benchmark?from=${from}`)
+      setBenchmark(res.data)
+    } catch (e) { console.error('Benchmark error:', e.message) }
+  }
+
+  async function fetchIntradaySnapshots() {
+    try {
+      const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()
+      const res = await axios.get(`${API}/api/intraday-snapshots/${exchangeId}?since=${since}`)
+      setIntradaySnapshots(res.data || [])
+    } catch (e) { console.error('Intraday snapshots error:', e.message) }
   }
 
   async function saveSnapshot() {
@@ -161,6 +184,7 @@ function Dashboard({ exchange, isGlobal }) {
     fetchSpotPositions()
     fetchTransactions()
     fetchSnapshots()
+    fetchIntradaySnapshots()
 
     const balancesInterval = setInterval(fetchBalances, 60000)
     const positionsInterval = setInterval(fetchPositions, 15000)
@@ -200,7 +224,39 @@ function Dashboard({ exchange, isGlobal }) {
     valor: parseFloat(parseFloat(s.total_value_usdt).toFixed(2))
   }))
 
+  const intradayChartData = intradaySnapshots.map(s => ({
+    date: dayjs(s.recorded_at).format('DD/MM HH:mm'),
+    valor: parseFloat(parseFloat(s.total_value_usdt).toFixed(2))
+  }))
+
+  const activeChartData = chartMode === 'intraday' && intradayChartData.length > 0
+    ? intradayChartData
+    : chartData
+
   const firstValue = snapshots.length > 0 ? parseFloat(snapshots[0].total_value_usdt) : 0
+
+  const benchmarkChartData = (() => {
+    if (!benchmark || !showBenchmark || chartData.length === 0) return []
+    const firstDate = snapshots[0]?.date
+    if (!firstDate) return []
+    const btcData = benchmark['BTCUSDT'] || []
+    const ethData = benchmark['ETHUSDT'] || []
+    const btcFirst = btcData.find(d => d.date >= firstDate)?.close || btcData[0]?.close
+    const ethFirst = ethData.find(d => d.date >= firstDate)?.close || ethData[0]?.close
+    const btcMap = Object.fromEntries(btcData.map(d => [d.date, d.close]))
+    const ethMap = Object.fromEntries(ethData.map(d => [d.date, d.close]))
+    return chartData.map((d, i) => {
+      const dateKey = snapshots[i]?.date
+      return {
+        ...d,
+        btc: btcFirst && btcMap[dateKey] ? (btcMap[dateKey] / btcFirst) * firstValue : undefined,
+        eth: ethFirst && ethMap[dateKey] ? (ethMap[dateKey] / ethFirst) * firstValue : undefined
+      }
+    })
+  })()
+
+  const finalChartData = showBenchmark && benchmarkChartData.length > 0 ? benchmarkChartData : activeChartData
+
   const deposits = netDeposits ?? 0
   const totalPnl = totalUsdt - firstValue - deposits
   const totalPnlPct = firstValue > 0 ? ((totalPnl / (firstValue + deposits)) * 100).toFixed(2) : 0
@@ -286,19 +342,43 @@ function Dashboard({ exchange, isGlobal }) {
               </button>
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={240}>
-            <AreaChart data={chartData}>
+          <div className="chart-header">
+            <div className="chart-toggles">
+              <button className={chartMode === 'daily' ? 'active' : ''} onClick={() => setChartMode('daily')}>Diário</button>
+              {intradaySnapshots.length > 0 && (
+                <button className={chartMode === 'intraday' ? 'active' : ''} onClick={() => setChartMode('intraday')}>Horário</button>
+              )}
+            </div>
+            <div className="chart-toggles">
+              <button
+                className={showBenchmark ? 'active' : ''}
+                onClick={() => { setShowBenchmark(v => !v); if (!benchmark) fetchBenchmark(snapshots[0]?.date) }}
+              >vs BTC / ETH</button>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={finalChartData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
               <defs>
-                <linearGradient id={`grad-${exchangeId}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={color} stopOpacity={0.3} />
-                  <stop offset="95%" stopColor={color} stopOpacity={0} />
+                <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-              <XAxis dataKey="date" stroke="#475569" tick={{ fontSize: 12 }} />
-              <YAxis stroke="#475569" tick={{ fontSize: 12 }} />
-              <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} labelStyle={{ color: '#94a3b8' }} formatter={v => [formatMoney(v), 'Value']} />
-              <Area type="monotone" dataKey="valor" stroke={color} strokeWidth={2} fill={`url(#grad-${exchangeId})`} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#18181f" />
+              <XAxis dataKey="date" tick={{ fill: '#475569', fontSize: 10 }} />
+              <YAxis tick={{ fill: '#475569', fontSize: 10 }} width={60} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
+              <Tooltip
+                contentStyle={{ background: '#0f0f17', border: '1px solid #18181f', borderRadius: '8px', fontSize: '12px' }}
+                formatter={(value, name) => {
+                  if (name === 'valor') return [`$${value.toLocaleString()}`, 'Portfolio']
+                  if (name === 'btc') return [`$${value?.toLocaleString()}`, 'BTC (norm.)']
+                  if (name === 'eth') return [`$${value?.toLocaleString()}`, 'ETH (norm.)']
+                  return [value, name]
+                }}
+              />
+              <Area type="monotone" dataKey="valor" stroke="#6366f1" fill="url(#colorVal)" dot={false} strokeWidth={2} />
+              {showBenchmark && <Area type="monotone" dataKey="btc" stroke="#f59e0b" fill="none" dot={false} strokeWidth={1.5} strokeDasharray="4 2" />}
+              {showBenchmark && <Area type="monotone" dataKey="eth" stroke="#627eea" fill="none" dot={false} strokeWidth={1.5} strokeDasharray="4 2" />}
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -315,45 +395,70 @@ function Dashboard({ exchange, isGlobal }) {
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-header">
-          <h2>Open Positions — Futures</h2>
-          <span className="tag" style={{ color, background: `${color}22` }}>
-            {positions.length} positions • ↻ 15s
-          </span>
-        </div>
-        <PositionsTable positions={positions} loading={loadingPositions} />
+      <div className="tabs" style={{ marginTop: '8px' }}>
+        <button className={`tab ${activeTab === 'balances' ? 'active' : ''}`} onClick={() => setActiveTab('balances')}>Saldos</button>
+        <button className={`tab ${activeTab === 'positions' ? 'active' : ''}`} onClick={() => setActiveTab('positions')}>Futuros</button>
+        <button className={`tab ${activeTab === 'spot' ? 'active' : ''}`} onClick={() => setActiveTab('spot')}>Spot</button>
+        <button className={`tab ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>Histórico</button>
+        <button className={`tab ${activeTab === 'realized' ? 'active' : ''}`} onClick={() => setActiveTab('realized')}>P&L Realizado</button>
       </div>
 
-      <div className="card">
-        <div className="card-header">
-          <h2>Open Positions — Spot</h2>
-          <span className="tag" style={{ color, background: `${color}22` }}>
-            {spotPositions.length} holdings • ↻ 60s
-          </span>
+      {activeTab === 'positions' && (
+        <div className="card">
+          <div className="card-header">
+            <h2>Open Positions — Futures</h2>
+            <span className="tag" style={{ color, background: `${color}22` }}>
+              {positions.length} positions • ↻ 15s
+            </span>
+          </div>
+          <PositionsTable positions={positions} loading={loadingPositions} />
         </div>
-        <SpotPositionsTable positions={spotPositions} loading={loadingSpot} isGlobal={isGlobal} />
-      </div>
+      )}
 
-      <div className="card">
-        <div className="card-header">
-          <h2>Wallet Balances</h2>
-          <span className="tag" style={{ color, background: `${color}22` }}>
-            {balances.length} assets • ↻ 60s
-          </span>
+      {activeTab === 'spot' && (
+        <div className="card">
+          <div className="card-header">
+            <h2>Open Positions — Spot</h2>
+            <span className="tag" style={{ color, background: `${color}22` }}>
+              {spotPositions.length} holdings • ↻ 60s
+            </span>
+          </div>
+          <SpotPositionsTable positions={spotPositions} loading={loadingSpot} isGlobal={isGlobal} />
         </div>
-        <BalancesTable balances={balances} totalUsdt={totalUsdt} isGlobal={isGlobal} loading={loadingBalances} />
-      </div>
+      )}
 
-      <div className="card">
-        <div className="card-header">
-          <h2>Transaction History</h2>
-          <span className="tag" style={{ color, background: `${color}22` }}>
-            {transactions.length} transactions • ↻ 60s
-          </span>
+      {activeTab === 'balances' && (
+        <div className="card">
+          <div className="card-header">
+            <h2>Wallet Balances</h2>
+            <span className="tag" style={{ color, background: `${color}22` }}>
+              {balances.length} assets • ↻ 60s
+            </span>
+          </div>
+          <BalancesTable balances={balances} totalUsdt={totalUsdt} isGlobal={isGlobal} loading={loadingBalances} />
         </div>
-        <TransactionsTable transactions={transactions} loading={loadingTransactions} isGlobal={isGlobal} />
-      </div>
+      )}
+
+      {activeTab === 'history' && (
+        <div className="card">
+          <div className="card-header">
+            <h2>Transaction History</h2>
+            <span className="tag" style={{ color, background: `${color}22` }}>
+              {transactions.length} transactions • ↻ 60s
+            </span>
+          </div>
+          <TransactionsTable transactions={transactions} loading={loadingTransactions} isGlobal={isGlobal} />
+        </div>
+      )}
+
+      {activeTab === 'realized' && (
+        <div className="card">
+          <div className="card-header">
+            <h2>P&L Realizado</h2>
+          </div>
+          <RealizedPnlPanel exchangeId={exchangeId} isGlobal={isGlobal} />
+        </div>
+      )}
     </div>
   )
 }

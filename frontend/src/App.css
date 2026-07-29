@@ -1377,3 +1377,104 @@ tr:hover td { background: #0f0f18; color: #cbd5e1; }
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ─── Realized P&L Panel ─────────────────────────────────── */
+.realized-pnl-panel { display: flex; flex-direction: column; gap: 20px; }
+
+.rpnl-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.rpnl-stat-card {
+  background: #0a0a10;
+  border: 1px solid #18181f;
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rpnl-by-asset h4,
+.rpnl-trades h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+
+.rpnl-by-asset table,
+.rpnl-trades table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.rpnl-by-asset th,
+.rpnl-by-asset td,
+.rpnl-trades th,
+.rpnl-trades td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid #18181f;
+}
+
+.rpnl-by-asset th,
+.rpnl-trades th {
+  color: #475569;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* ─── Chart toggles ──────────────────────────────────────── */
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chart-toggles {
+  display: flex;
+  gap: 4px;
+}
+
+.chart-toggles button {
+  background: #0f0f17;
+  border: 1px solid #18181f;
+  border-radius: 6px;
+  color: #475569;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.chart-toggles button.active,
+.chart-toggles button:hover {
+  background: #1e1e3a;
+  border-color: #4f46e5;
+  color: #818cf8;
+}
+
+/* ─── Alert sections ─────────────────────────────────────── */
+.alert-section {
+  background: #0a0a10;
+  border: 1px solid #18181f;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.alert-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e2e8f0;
+  margin-bottom: 8px;
+}
