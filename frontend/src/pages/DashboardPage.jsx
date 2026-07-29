@@ -210,7 +210,7 @@ function Dashboard({ exchange, isGlobal }) {
     const pnl = getPnlForDate(date)
     if (pnl === null) return null
     const c = pnl >= 0 ? '#22c55e' : '#ef4444'
-    return <div style={{ fontSize: '9px', color: c, fontWeight: 700 }}>{pnl >= 0 ? '+' : ''}{formatMoney(pnl)}</div>
+    return <div style={{ fontSize: '9px', color: c, fontWeight: 700 }}>{formatMoney(pnl)}</div>
   }
 
   function tileClassName({ date }) {
@@ -288,7 +288,7 @@ function Dashboard({ exchange, isGlobal }) {
         <div className="stat-card">
           <span className="label">Historical P&L</span>
           <span className="value" style={{ color: totalPnl >= 0 ? '#22c55e' : '#ef4444' }}>
-            {netDeposits === null ? '...' : (totalPnl >= 0 ? '+' : '') + formatMoney(totalPnl)}
+            {netDeposits === null ? '...' : formatMoney(totalPnl)}
           </span>
           <span className="badge">
             {netDeposits === null ? 'loading deposits...' : deposits > 0 ? `excl. ${deposits.toFixed(0)}$ deposits` : 'since first snapshot'}
@@ -297,14 +297,14 @@ function Dashboard({ exchange, isGlobal }) {
         <div className="stat-card">
           <span className="label">Futures P&L (open)</span>
           <span className="value" style={{ color: totalFuturesPnl >= 0 ? '#22c55e' : '#ef4444' }}>
-            {totalFuturesPnl >= 0 ? '+' : ''}{formatMoney(totalFuturesPnl)}
+            {formatMoney(totalFuturesPnl)}
           </span>
           <span className="badge">{positions.length} positions • ↻ 15s</span>
         </div>
         <div className="stat-card">
           <span className="label">Spot P&L</span>
           <span className="value" style={{ color: totalSpotPnl >= 0 ? '#22c55e' : '#ef4444' }}>
-            {totalSpotPnl !== 0 ? `${totalSpotPnl >= 0 ? '+' : ''}${formatMoney(totalSpotPnl)}` : '—'}
+            {totalSpotPnl !== 0 ? formatMoney(totalSpotPnl) : '—'}
           </span>
           <span className="badge">{spotPositions.length} holdings • ↻ 60s</span>
         </div>
@@ -323,7 +323,7 @@ function Dashboard({ exchange, isGlobal }) {
           <div className="stat-card">
             <span className="label">Today's P&L</span>
             <span className="value" style={{ color: todayPnl >= 0 ? '#22c55e' : '#ef4444' }}>
-              {todayPnl >= 0 ? '+' : ''}{formatMoney(todayPnl)}
+              {formatMoney(todayPnl)}
             </span>
             <span className="badge">{todayPnlLabel}</span>
           </div>

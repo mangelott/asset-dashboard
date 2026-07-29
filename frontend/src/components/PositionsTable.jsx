@@ -33,10 +33,10 @@ export default function PositionsTable({ positions, loading }) {
             <td>{formatMoney(p.entryPrice ?? 0, 4)}</td>
             <td>{formatMoney(p.markPrice ?? 0, 4)}</td>
             <td style={{ color: (p.pnl ?? 0) >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>
-              {(p.pnl ?? 0) >= 0 ? '+' : ''}{formatMoney(p.pnl ?? 0)}
+              {formatMoney(p.pnl ?? 0)}
             </td>
             <td style={{ color: (p.pnlPct ?? 0) >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>
-              {(p.pnlPct ?? 0) >= 0 ? '+' : ''}{(p.pnlPct ?? 0).toFixed(2)}%
+              {(p.pnlPct ?? 0).toFixed(2)}%
             </td>
             <td style={{ color: '#ef4444' }}>{p.liquidationPrice > 0 ? formatMoney(p.liquidationPrice) : '—'}</td>
             <td><span className="leverage-badge">{p.leverage}x</span></td>

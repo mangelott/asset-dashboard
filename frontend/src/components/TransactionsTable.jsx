@@ -42,10 +42,10 @@ export default function TransactionsTable({ transactions, loading, isGlobal }) {
               <td>{t.qty.toFixed(6)}</td>
               <td>{value !== null ? formatMoney(value) : '—'}</td>
               <td style={{ color: (t.pnl ?? 0) > 0 ? '#22c55e' : (t.pnl ?? 0) < 0 ? '#ef4444' : '#64748b', fontWeight: t.pnl ? 700 : 400 }}>
-                {t.pnl !== null && t.pnl !== undefined ? `${t.pnl >= 0 ? '+' : ''}${formatMoney(t.pnl)}` : '—'}
+                {t.pnl !== null && t.pnl !== undefined ? formatMoney(t.pnl) : '—'}
               </td>
               <td style={{ color: (t.pnlPct ?? 0) > 0 ? '#22c55e' : (t.pnlPct ?? 0) < 0 ? '#ef4444' : '#64748b', fontWeight: t.pnlPct ? 700 : 400 }}>
-                {t.pnlPct !== null && t.pnlPct !== undefined ? `${t.pnlPct >= 0 ? '+' : ''}${t.pnlPct.toFixed(2)}%` : '—'}
+                {t.pnlPct !== null && t.pnlPct !== undefined ? `${t.pnlPct.toFixed(2)}%` : '—'}
               </td>
             </tr>
           )

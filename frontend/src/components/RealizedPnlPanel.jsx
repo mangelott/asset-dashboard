@@ -38,7 +38,7 @@ export default function RealizedPnlPanel({ exchangeId, isGlobal }) {
         <div className="rpnl-stat-card">
           <span className="label">P&L Realizado Total</span>
           <span className="value" style={{ color: stats.totalPnl >= 0 ? '#22c55e' : '#ef4444' }}>
-            {stats.totalPnl >= 0 ? '+' : ''}{formatMoney(stats.totalPnl)}
+            {formatMoney(stats.totalPnl)}
           </span>
         </div>
         <div className="rpnl-stat-card">
@@ -51,7 +51,7 @@ export default function RealizedPnlPanel({ exchangeId, isGlobal }) {
         <div className="rpnl-stat-card">
           <span className="label">Melhor Trade</span>
           <span className="value" style={{ color: '#22c55e' }}>
-            {stats.best ? `+${formatMoney(stats.best.pnl)}` : '—'}
+            {stats.best ? formatMoney(stats.best.pnl) : '—'}
           </span>
           {stats.best && <span className="badge">{stats.best.asset} · {dayjs(stats.best.date).format('DD/MM/YY')}</span>}
         </div>
@@ -65,7 +65,7 @@ export default function RealizedPnlPanel({ exchangeId, isGlobal }) {
         <div className="rpnl-stat-card">
           <span className="label">Média Win / Loss</span>
           <span className="value" style={{ fontSize: '16px' }}>
-            <span style={{ color: '#22c55e' }}>+{formatMoney(stats.avgWin)}</span>
+            <span style={{ color: '#22c55e' }}>{formatMoney(stats.avgWin)}</span>
             {' / '}
             <span style={{ color: '#ef4444' }}>{formatMoney(stats.avgLoss)}</span>
           </span>
@@ -82,7 +82,7 @@ export default function RealizedPnlPanel({ exchangeId, isGlobal }) {
                 <tr key={asset}>
                   <td><strong>{asset}</strong></td>
                   <td style={{ color: s.pnl >= 0 ? '#22c55e' : '#ef4444' }}>
-                    {s.pnl >= 0 ? '+' : ''}{formatMoney(s.pnl)}
+                    {formatMoney(s.pnl)}
                   </td>
                   <td style={{ color: '#22c55e' }}>{s.wins}</td>
                   <td style={{ color: '#ef4444' }}>{s.losses}</td>
@@ -120,10 +120,10 @@ export default function RealizedPnlPanel({ exchangeId, isGlobal }) {
                     <td>{(t.qty ?? 0).toFixed(4)}</td>
                     <td>${(t.price ?? 0).toFixed(4)}</td>
                     <td style={{ color: t.pnl >= 0 ? '#22c55e' : '#ef4444' }}>
-                      {t.pnl >= 0 ? '+' : ''}{formatMoney(t.pnl)}
+                      {formatMoney(t.pnl)}
                     </td>
-                    <td style={{ color: t.pnlPct >= 0 ? '#22c55e' : '#ef4444' }}>
-                      {t.pnlPct >= 0 ? '+' : ''}{(t.pnlPct ?? 0).toFixed(2)}%
+                    <td style={{ color: (t.pnlPct ?? 0) >= 0 ? '#22c55e' : '#ef4444' }}>
+                      {t.pnlPct !== null && t.pnlPct !== undefined ? `${t.pnlPct.toFixed(2)}%` : '—'}
                     </td>
                   </tr>
                 ))}
