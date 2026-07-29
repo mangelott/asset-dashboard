@@ -388,9 +388,10 @@ app.post('/api/alerts', auth, async (req, res) => {
   try {
     const { asset, condition, timeframe, threshold, isRecurring } = req.body;
     if (!asset || !condition || threshold === undefined) return res.status(400).json({ error: 'Missing required fields' });
-    const validConditions = ['candle_close_above', 'candle_close_below', 'price_above', 'price_below'];
+    const validConditions = ['candle_close_above', 'candle_close_below', 'price_above', 'price_below', 'price_change_pct_up', 'price_change_pct_down'];
     if (!validConditions.includes(condition)) return res.status(400).json({ error: 'Invalid condition' });
-    if (condition.startsWith('candle_close_') && !timeframe) return res.status(400).json({ error: 'Timeframe required for candle-based alerts' });
+    if ((condition.startsWith('candle_close_') || condition.startsWith('price_change_pct')) && !timeframe)
+      return res.status(400).json({ error: 'Timeframe required for this condition' });
     const alert = await db.createPriceAlert(req.user.userId, { asset: asset.toUpperCase(), condition, timeframe, threshold, isRecurring });
     res.json(alert);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -732,6 +733,137 @@ cron.schedule('* * * * *', () => {
 // ─── Paper trading live engine (cron) ─────────────────────
 cron.schedule('* * * * *', () => {
   paperTradingEngine.checkLiveStrategies().catch(e => console.error('Paper trading engine error:', e.message));
+});
+
+// ─── Realized P&L ─────────────────────────────────────────
+function aggregateTradeStats(trades) {
+  const closed = trades.filter(t => t.pnl !== null && t.pnl !== undefined);
+  const totalPnl = closed.reduce((s, t) => s + t.pnl, 0);
+  const wins = closed.filter(t => t.pnl > 0);
+  const losses = closed.filter(t => t.pnl <= 0);
+  const best = closed.length ? closed.reduce((b, t) => t.pnl > b.pnl ? t : b) : null;
+  const worst = closed.length ? closed.reduce((w, t) => t.pnl < w.pnl ? t : w) : null;
+  const byAsset = {};
+  closed.forEach(t => {
+    if (!byAsset[t.asset]) byAsset[t.asset] = { pnl: 0, wins: 0, losses: 0 };
+    byAsset[t.asset].pnl += t.pnl;
+    t.pnl > 0 ? byAsset[t.asset].wins++ : byAsset[t.asset].losses++;
+  });
+  return {
+    totalPnl, tradeCount: closed.length, winCount: wins.length, lossCount: losses.length,
+    winRate: closed.length ? (wins.length / closed.length) * 100 : 0,
+    avgWin: wins.length ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0,
+    avgLoss: losses.length ? losses.reduce((s, t) => s + t.pnl, 0) / losses.length : 0,
+    best, worst, byAsset
+  };
+}
+
+async function fetchTradeHistory(exchange) {
+  const adapter = ADAPTERS[exchange.type];
+  if (!adapter?.getTradeHistory) return [];
+  if (exchange.type === 'okx') return adapter.getTradeHistory(exchange.api_key, exchange.api_secret, exchange.passphrase);
+  if (exchange.type === 'wallet_eth') return adapter.getTradeHistory(exchange.api_key, exchange.api_secret);
+  return adapter.getTradeHistory(exchange.api_key, exchange.api_secret);
+}
+
+app.get('/api/exchange/:id/realized-pnl', auth, async (req, res) => {
+  try {
+    const exchange = await db.getExchangeById(req.user.userId, req.params.id);
+    if (!exchange) return res.status(404).json({ error: 'Exchange not found' });
+    const trades = await fetchTradeHistory(exchange);
+    res.json({ trades, stats: aggregateTradeStats(trades) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/global/realized-pnl', auth, async (req, res) => {
+  try {
+    const list = await db.getAllExchanges(req.user.userId);
+    const exchanges = await Promise.all(list.map(e => db.getExchangeById(req.user.userId, e.id)));
+    const results = await Promise.allSettled(exchanges.map(async (ex, i) => {
+      const trades = await fetchTradeHistory(ex);
+      return trades.map(t => ({ ...t, exchangeName: ex.name, exchangeType: ex.type }));
+    }));
+    const allTrades = results
+      .flatMap((r, i) => r.status === 'fulfilled' ? r.value : [])
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+    res.json({ trades: allTrades, stats: aggregateTradeStats(allTrades) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── Push Notifications ───────────────────────────────────
+app.get('/api/push/vapid-public-key', (req, res) => {
+  res.json({ publicKey: alertEngine.VAPID_PUBLIC });
+});
+
+app.post('/api/push/subscribe', auth, async (req, res) => {
+  try {
+    const { endpoint, keys } = req.body;
+    if (!endpoint || !keys?.p256dh || !keys?.auth) return res.status(400).json({ error: 'Invalid subscription' });
+    await db.savePushSubscription(req.user.userId, endpoint, keys.p256dh, keys.auth);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/push/unsubscribe', auth, async (req, res) => {
+  try {
+    const { endpoint } = req.body;
+    await db.deletePushSubscription(req.user.userId, endpoint);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── Benchmark ────────────────────────────────────────────
+app.get('/api/benchmark', auth, async (req, res) => {
+  try {
+    const { from } = req.query;
+    const startMs = from ? new Date(from).getTime() : Date.now() - 365 * 24 * 3600 * 1000;
+    const symbols = ['BTCUSDT', 'ETHUSDT'];
+    const result = {};
+    for (const sym of symbols) {
+      const klines = await getHistoricalKlines(sym, '1d', startMs);
+      result[sym] = klines.map(k => ({
+        date: new Date(k.time).toISOString().split('T')[0],
+        close: k.close
+      }));
+    }
+    res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── Hourly Intraday Snapshots (cron) ─────────────────────
+cron.schedule('0 * * * *', async () => {
+  try {
+    const users = await db.getAllUsers();
+    for (const { id: userId } of users) {
+      const list = await db.getAllExchanges(userId);
+      const exchanges = await Promise.all(list.map(e => db.getExchangeById(userId, e.id)));
+      let globalTotal = 0;
+      for (const exchange of exchanges) {
+        try {
+          const adapter = ADAPTERS[exchange.type];
+          if (!adapter) continue;
+          let data;
+          if (exchange.type === 'trading212') data = await adapter.getBalances(exchange.api_key, exchange.api_secret);
+          else if (exchange.type === 'wallet_eth') data = await adapter.getBalances(exchange.api_key, exchange.api_secret);
+          else if (exchange.type === 'okx') data = await adapter.getBalances(exchange.api_key, exchange.api_secret, exchange.passphrase);
+          else data = await adapter.getBalances(exchange.api_key, exchange.api_secret);
+          const val = data.totalUsdt || 0;
+          await db.saveIntradaySnapshot(userId, exchange.id, val);
+          globalTotal += val;
+        } catch (e) { console.error(`Intraday snapshot error [${exchange.name}]:`, e.message); }
+      }
+      if (list.length > 0) await db.saveIntradaySnapshot(userId, 'global', globalTotal);
+    }
+    console.log('Intraday snapshots saved:', new Date().toISOString());
+  } catch (e) { console.error('Intraday snapshot cron error:', e.message); }
+});
+
+app.get('/api/intraday-snapshots/:exchangeId', auth, async (req, res) => {
+  try {
+    const { since } = req.query;
+    const rows = await db.getIntradaySnapshots(req.user.userId, req.params.exchangeId, since);
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));

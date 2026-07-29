@@ -7,7 +7,9 @@ const CONDITIONS = [
   { value: 'candle_close_above', label: 'Vela fecha acima de', needsTimeframe: true },
   { value: 'candle_close_below', label: 'Vela fecha abaixo de', needsTimeframe: true },
   { value: 'price_above', label: 'Preço sobe acima de', needsTimeframe: false },
-  { value: 'price_below', label: 'Preço desce abaixo de', needsTimeframe: false }
+  { value: 'price_below', label: 'Preço desce abaixo de', needsTimeframe: false },
+  { value: 'price_change_pct_up', label: 'Sobe X% em período', needsTimeframe: true },
+  { value: 'price_change_pct_down', label: 'Desce X% em período', needsTimeframe: true }
 ]
 
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '4h', '1d']
@@ -19,6 +21,9 @@ export default function Alerts() {
   const [inviteUrl, setInviteUrl] = useState(null)
   const [form, setForm] = useState({ asset: '', condition: 'candle_close_above', timeframe: '15m', threshold: '', isRecurring: false })
   const [saving, setSaving] = useState(false)
+  const [pushSupported, setPushSupported] = useState(false)
+  const [pushEnabled, setPushEnabled] = useState(false)
+  const [pushLoading, setPushLoading] = useState(false)
 
   async function fetchAlerts() {
     try {
@@ -40,6 +45,39 @@ export default function Alerts() {
     fetchAlerts()
     fetchTelegramStatus()
   }, [])
+
+  useEffect(() => {
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      setPushSupported(true)
+      navigator.serviceWorker.ready.then(async reg => {
+        const sub = await reg.pushManager.getSubscription()
+        setPushEnabled(!!sub)
+      }).catch(() => {})
+    }
+  }, [])
+
+  async function togglePush() {
+    setPushLoading(true)
+    try {
+      const reg = await navigator.serviceWorker.ready
+      const existing = await reg.pushManager.getSubscription()
+      if (existing) {
+        await axios.delete(`${API}/api/push/unsubscribe`, { data: { endpoint: existing.endpoint } })
+        await existing.unsubscribe()
+        setPushEnabled(false)
+      } else {
+        const { data } = await axios.get(`${API}/api/push/vapid-public-key`)
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: data.publicKey
+        })
+        await axios.post(`${API}/api/push/subscribe`, sub.toJSON())
+        setPushEnabled(true)
+      }
+    } catch (e) {
+      alert('Erro ao configurar notificações: ' + (e.message || 'Permissão negada'))
+    } finally { setPushLoading(false) }
+  }
 
   async function connectTelegram() {
     try {
@@ -96,6 +134,23 @@ export default function Alerts() {
       </header>
 
       <AppNav />
+
+      {pushSupported && (
+        <div className="alert-section">
+          <h3>🔔 Notificações no Browser</h3>
+          <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '12px' }}>
+            Recebe alertas diretamente no browser, mesmo sem Telegram configurado.
+          </p>
+          <button
+            className={pushEnabled ? 'btn-danger' : 'btn-primary'}
+            onClick={togglePush}
+            disabled={pushLoading}
+          >
+            {pushLoading ? '...' : pushEnabled ? 'Desactivar notificações' : 'Activar notificações no browser'}
+          </button>
+          {pushEnabled && <p style={{ fontSize: '12px', color: '#22c55e', marginTop: '8px' }}>✓ Notificações activas neste browser</p>}
+        </div>
+      )}
 
       <div className="card">
         <div className="card-header">

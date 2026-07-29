@@ -167,6 +167,24 @@ async function initDB() {
       last_candle_time BIGINT NOT NULL,
       PRIMARY KEY (strategy_id, asset)
     );
+
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      endpoint TEXT NOT NULL,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(user_id, endpoint)
+    );
+
+    CREATE TABLE IF NOT EXISTS intraday_snapshots (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      exchange_id VARCHAR(255) NOT NULL,
+      recorded_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      total_value_usdt DECIMAL(20, 8) NOT NULL
+    );
   `);
 }
 
@@ -352,6 +370,41 @@ async function getTotalManualDeposits(userId, exchangeId, since = null) {
 
 async function deleteManualDeposit(userId, depositId) {
   await pool.query('DELETE FROM exchange_deposits WHERE id = $1 AND user_id = $2', [depositId, userId]);
+}
+
+// ─── Push Subscriptions ───────────────────────────────────
+async function savePushSubscription(userId, endpoint, p256dh, auth) {
+  await pool.query(`
+    INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (user_id, endpoint) DO UPDATE SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth
+  `, [userId, endpoint, p256dh, auth]);
+}
+
+async function getPushSubscriptionsByUserId(userId) {
+  const { rows } = await pool.query('SELECT * FROM push_subscriptions WHERE user_id = $1', [userId]);
+  return rows;
+}
+
+async function deletePushSubscription(userId, endpoint) {
+  await pool.query('DELETE FROM push_subscriptions WHERE user_id = $1 AND endpoint = $2', [userId, endpoint]);
+}
+
+// ─── Intraday Snapshots ───────────────────────────────────
+async function saveIntradaySnapshot(userId, exchangeId, totalValueUsdt) {
+  await pool.query(
+    'INSERT INTO intraday_snapshots (user_id, exchange_id, total_value_usdt) VALUES ($1, $2, $3)',
+    [userId, exchangeId, totalValueUsdt]
+  );
+}
+
+async function getIntradaySnapshots(userId, exchangeId, since) {
+  const sinceTs = since || new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+  const { rows } = await pool.query(
+    'SELECT * FROM intraday_snapshots WHERE user_id = $1 AND exchange_id = $2 AND recorded_at >= $3 ORDER BY recorded_at ASC',
+    [userId, exchangeId, sinceTs]
+  );
+  return rows;
 }
 
 async function getAllActivePriceAlerts() {
@@ -595,5 +648,10 @@ module.exports = {
   getPaperEquitySnapshots,
   getLastProcessedCandleTime,
   setLastProcessedCandleTime,
-  updatePaperPositionPeak
+  updatePaperPositionPeak,
+  savePushSubscription,
+  getPushSubscriptionsByUserId,
+  deletePushSubscription,
+  saveIntradaySnapshot,
+  getIntradaySnapshots
 };
