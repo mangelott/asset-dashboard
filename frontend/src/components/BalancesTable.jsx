@@ -40,12 +40,12 @@ export default function BalancesTable({ balances, totalUsdt, isGlobal, loading }
               <td><strong>{formatMoney(b.valueUsdt)}</strong></td>
               {!isFutures && (
                 <td style={{ color: (b.pnl ?? 0) > 0 ? '#22c55e' : (b.pnl ?? 0) < 0 ? '#ef4444' : '#64748b', fontWeight: (b.pnl ?? 0) !== 0 ? 700 : 400 }}>
-                  {(b.pnl ?? 0) !== 0 ? `${(b.pnl ?? 0) >= 0 ? '+' : ''}${formatMoney(b.pnl ?? 0)}` : '—'}
+                  {(b.pnl ?? 0) !== 0 ? formatMoney(b.pnl ?? 0) : '—'}
                 </td>
               )}
               {!isFutures && (
                 <td style={{ color: (b.pnlPct ?? 0) > 0 ? '#22c55e' : (b.pnlPct ?? 0) < 0 ? '#ef4444' : '#64748b', fontWeight: (b.pnlPct ?? 0) !== 0 ? 700 : 400 }}>
-                  {(b.pnlPct ?? 0) !== 0 ? `${(b.pnlPct ?? 0) >= 0 ? '+' : ''}${(b.pnlPct ?? 0).toFixed(2)}%` : '—'}
+                  {(b.pnlPct ?? 0) !== 0 ? `${(b.pnlPct ?? 0).toFixed(2)}%` : '—'}
                 </td>
               )}
               <td>
