@@ -3,23 +3,23 @@ import { useCurrency } from '../context/CurrencyContext'
 
 export default function SpotPositionsTable({ positions, loading, isGlobal }) {
   const { formatMoney } = useCurrency()
-  if (loading) return <div className="table-loading">Loading spot positions...</div>
-  if (!positions.length) return <div className="empty-state">No spot holdings</div>
+  if (loading) return <div className="table-loading">A carregar posições spot...</div>
+  if (!positions.length) return <div className="empty-state">Sem activos spot</div>
 
   return (
     <table>
       <thead>
         <tr>
-          <th>Asset</th>
+          <th>Activo</th>
           {isGlobal && <th>Exchange</th>}
-          <th>Qty</th>
-          <th>Avg Entry</th>
-          <th>Current Price</th>
-          <th>Open Value</th>
-          <th>Current Value</th>
-          <th>P&L $</th>
+          <th>Quantidade</th>
+          <th>Preço Médio</th>
+          <th>Preço Atual</th>
+          <th>Valor Entrada</th>
+          <th>Valor Atual</th>
+          <th>P&L</th>
           <th>P&L %</th>
-          <th>Since</th>
+          <th>Desde</th>
         </tr>
       </thead>
       <tbody>

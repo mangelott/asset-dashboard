@@ -4,8 +4,8 @@ import { useCurrency } from '../context/CurrencyContext'
 export default function BalancesTable({ balances, totalUsdt, isGlobal, loading }) {
   const { formatMoney } = useCurrency()
   const [hideDust, setHideDust] = useState(false)
-  if (loading) return <div className="table-loading">Loading balances...</div>
-  if (!balances.length) return <div className="empty-state">No balances available</div>
+  if (loading) return <div className="table-loading">A carregar saldos...</div>
+  if (!balances.length) return <div className="empty-state">Sem saldos disponíveis</div>
 
   const visibleBalances = hideDust ? balances.filter(b => b.valueUsdt >= 1) : balances
   const spotBalances = visibleBalances.filter(b => b.type === 'Spot' || !b.type)
@@ -15,13 +15,13 @@ export default function BalancesTable({ balances, totalUsdt, isGlobal, loading }
     <table>
       <thead>
         <tr>
-          <th>Currency</th>
+          <th>Moeda</th>
           {isGlobal && <th>Exchange</th>}
-          <th>Amount</th>
-          {!isFutures && <th>Avg Price</th>}
-          {!isFutures && <th>Current Price</th>}
-          <th>Value</th>
-          {!isFutures && <th>P&L $</th>}
+          <th>Quantidade</th>
+          {!isFutures && <th>Preço Médio</th>}
+          {!isFutures && <th>Preço Atual</th>}
+          <th>Valor</th>
+          {!isFutures && <th>P&L</th>}
           {!isFutures && <th>P&L %</th>}
           <th>% Portfolio</th>
         </tr>
@@ -65,7 +65,7 @@ export default function BalancesTable({ balances, totalUsdt, isGlobal, loading }
     <div>
       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', marginBottom: '12px', cursor: 'pointer', color: '#94a3b8' }}>
         <input type="checkbox" checked={hideDust} onChange={e => setHideDust(e.target.checked)} />
-        Hide assets under $1
+        Esconder activos abaixo de $1
       </label>
 
       {spotBalances.length > 0 && (
@@ -76,12 +76,12 @@ export default function BalancesTable({ balances, totalUsdt, isGlobal, loading }
       )}
       {futuresBalances.length > 0 && (
         <>
-          <div className="table-section-label" style={{ marginTop: '16px' }}>Futures Margin</div>
+          <div className="table-section-label" style={{ marginTop: '16px' }}>Margem Futuros</div>
           {renderTable(futuresBalances, true)}
         </>
       )}
       {spotBalances.length === 0 && futuresBalances.length === 0 && (
-        <div className="empty-state">All assets are under $1 — uncheck the filter to see them</div>
+        <div className="empty-state">Todos os activos estão abaixo de $1 — desactiva o filtro para os ver</div>
       )}
     </div>
   )
