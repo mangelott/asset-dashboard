@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import Calendar from 'react-calendar'
@@ -14,12 +14,8 @@ import SettingsModal from '../components/SettingsModal'
 import AppNav from '../components/AppNav'
 import RealizedPnlPanel from '../components/RealizedPnlPanel'
 
-// Survives tab remounts (the Dashboard below is remounted on every tab switch via
-// its `key` prop) so revisiting a tab shows the last-known data instantly instead
-// of a fresh loading state, while fetches still refresh it in the background.
 const dashboardCache = new Map()
 
-// ─── Currency Toggle ──────────────────────────────────────
 function CurrencyToggle() {
   const { currency, setCurrency } = useCurrency()
   return (
@@ -30,7 +26,6 @@ function CurrencyToggle() {
   )
 }
 
-// ─── Dashboard ────────────────────────────────────────────
 function Dashboard({ exchange, isGlobal }) {
   const { formatMoney } = useCurrency()
   const exchangeId = isGlobal ? 'global' : exchange?.id
@@ -85,7 +80,7 @@ function Dashboard({ exchange, isGlobal }) {
       updateCache({ balances, totalUsdt, breakdown, lastUpdated })
     } catch (e) {
       console.error('Balance error:', e.message)
-      setBalanceError(e.response?.data?.error || e.message || 'Failed to load balances')
+      setBalanceError(e.response?.data?.error || e.message || 'Erro ao carregar saldos')
     } finally {
       setLoadingBalances(false)
     }
@@ -173,12 +168,11 @@ function Dashboard({ exchange, isGlobal }) {
     try {
       await axios.post(`${API}/api/snapshot`, { exchangeId })
       await fetchSnapshots()
-    } catch (e) { alert(e.response?.data?.error || 'Error saving snapshot') }
+    } catch (e) { alert(e.response?.data?.error || 'Erro ao guardar snapshot') }
     finally { setSaving(false) }
   }
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional fetch-on-mount + polling, not derivable from render
     fetchBalances()
     fetchPositions()
     fetchSpotPositions()
@@ -210,7 +204,12 @@ function Dashboard({ exchange, isGlobal }) {
     const pnl = getPnlForDate(date)
     if (pnl === null) return null
     const c = pnl >= 0 ? '#22c55e' : '#ef4444'
-    return <div style={{ fontSize: '9px', color: c, fontWeight: 700 }}>{formatMoney(pnl)}</div>
+    return (
+      <div className="cal-tile-pnl">
+        <span className="cal-dot" style={{ background: c }} />
+        <span className="cal-tip" style={{ color: c }}>{formatMoney(pnl)}</span>
+      </div>
+    )
   }
 
   function tileClassName({ date }) {
@@ -266,51 +265,67 @@ function Dashboard({ exchange, isGlobal }) {
   const todayPnl = lastSnapshot && prevSnapshot
     ? parseFloat(lastSnapshot.total_value_usdt) - parseFloat(prevSnapshot.total_value_usdt)
     : 0
-  const todayPnlLabel = lastSnapshot?.date === today ? 'vs yesterday' : lastSnapshot?.date ? `vs ${prevSnapshot?.date || '—'}` : 'no snapshots'
+  const todayPnlLabel = lastSnapshot?.date === today ? 'vs ontem' : lastSnapshot?.date ? `vs ${prevSnapshot?.date || '—'}` : 'sem snapshots'
   const totalFuturesPnl = positions.reduce((sum, p) => sum + (p.pnl ?? 0), 0)
   const totalSpotPnl = spotPositions.reduce((sum, p) => sum + (p.pnl ?? 0), 0)
+
+  const hasFutures = !loadingPositions && positions.length > 0
+  const hasSpotPnl = !loadingSpot && totalSpotPnl !== 0
 
   return (
     <div>
       {balanceError && (
         <div className="error-banner">
-          Connection error: {balanceError}
+          Erro de ligação: {balanceError}
         </div>
       )}
       <div className="stats">
         <div className="stat-card main" style={{ borderColor: `${color}33` }}>
-          <span className="label">Total Value</span>
+          <span className="label">Valor Total</span>
           <span className="value">{formatMoney(totalUsdt)}</span>
           <span className="badge" style={{ color: totalPnl >= 0 ? '#22c55e' : '#ef4444' }}>
-            {totalPnl >= 0 ? '▲' : '▼'} {Math.abs(totalPnlPct)}% since start
+            {totalPnl >= 0 ? '▲' : '▼'} {Math.abs(totalPnlPct)}% desde o início
           </span>
         </div>
         <div className="stat-card">
-          <span className="label">Historical P&L</span>
+          <span className="label">P&L Histórico</span>
           <span className="value" style={{ color: totalPnl >= 0 ? '#22c55e' : '#ef4444' }}>
             {netDeposits === null ? '...' : formatMoney(totalPnl)}
           </span>
           <span className="badge">
-            {netDeposits === null ? 'loading deposits...' : deposits > 0 ? `excl. ${deposits.toFixed(0)}$ deposits` : 'since first snapshot'}
+            {netDeposits === null ? 'a calcular...' : deposits > 0 ? `excl. ${deposits.toFixed(0)}$ depositados` : 'desde o 1º snapshot'}
           </span>
         </div>
-        <div className="stat-card">
-          <span className="label">Futures P&L (open)</span>
-          <span className="value" style={{ color: totalFuturesPnl >= 0 ? '#22c55e' : '#ef4444' }}>
-            {formatMoney(totalFuturesPnl)}
-          </span>
-          <span className="badge">{positions.length} positions • ↻ 15s</span>
-        </div>
-        <div className="stat-card">
-          <span className="label">Spot P&L</span>
-          <span className="value" style={{ color: totalSpotPnl >= 0 ? '#22c55e' : '#ef4444' }}>
-            {totalSpotPnl !== 0 ? formatMoney(totalSpotPnl) : '—'}
-          </span>
-          <span className="badge">{spotPositions.length} holdings • ↻ 60s</span>
-        </div>
-        {isGlobal ? (
+        {!isGlobal && (
           <div className="stat-card">
-            <span className="label">Distribution</span>
+            <span className="label">P&L Hoje</span>
+            <span className="value" style={{ color: todayPnl >= 0 ? '#22c55e' : '#ef4444' }}>
+              {formatMoney(todayPnl)}
+            </span>
+            <span className="badge">{todayPnlLabel}</span>
+          </div>
+        )}
+        {hasFutures && (
+          <div className="stat-card">
+            <span className="label">P&L Futuros</span>
+            <span className="value" style={{ color: totalFuturesPnl >= 0 ? '#22c55e' : '#ef4444' }}>
+              {formatMoney(totalFuturesPnl)}
+            </span>
+            <span className="badge">{positions.length} {positions.length === 1 ? 'posição' : 'posições'} • ↻ 15s</span>
+          </div>
+        )}
+        {hasSpotPnl && (
+          <div className="stat-card">
+            <span className="label">P&L Spot</span>
+            <span className="value" style={{ color: totalSpotPnl >= 0 ? '#22c55e' : '#ef4444' }}>
+              {formatMoney(totalSpotPnl)}
+            </span>
+            <span className="badge">{spotPositions.length} {spotPositions.length === 1 ? 'activo' : 'activos'} • ↻ 60s</span>
+          </div>
+        )}
+        {isGlobal && (
+          <div className="stat-card">
+            <span className="label">Distribuição</span>
             <div style={{ marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {Object.entries(breakdown).map(([name, value]) => (
                 <span key={name} style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>
@@ -319,26 +334,17 @@ function Dashboard({ exchange, isGlobal }) {
               ))}
             </div>
           </div>
-        ) : (
-          <div className="stat-card">
-            <span className="label">Today's P&L</span>
-            <span className="value" style={{ color: todayPnl >= 0 ? '#22c55e' : '#ef4444' }}>
-              {formatMoney(todayPnl)}
-            </span>
-            <span className="badge">{todayPnlLabel}</span>
-          </div>
         )}
       </div>
 
       <div className="main-grid">
         <div className="card">
           <div className="card-header">
-            <h2>Account Evolution</h2>
+            <h2>Evolução do Portfolio</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               {lastUpdated && <span className="update-time">↻ {dayjs(lastUpdated).format('HH:mm:ss')}</span>}
               <button className="btn-snapshot" onClick={saveSnapshot} disabled={saving}>
                 {saving ? '...' : '+ Snapshot'}
-
               </button>
             </div>
           </div>
@@ -385,10 +391,10 @@ function Dashboard({ exchange, isGlobal }) {
 
         <div className="card">
           <div className="card-header">
-            <h2>P&L Calendar</h2>
+            <h2>Calendário P&L</h2>
             <div className="legend">
-              <span className="legend-item profit">● Profit</span>
-              <span className="legend-item loss">● Loss</span>
+              <span className="legend-item profit">● Lucro</span>
+              <span className="legend-item loss">● Perda</span>
             </div>
           </div>
           <Calendar tileContent={tileContent} tileClassName={tileClassName} />
@@ -406,9 +412,9 @@ function Dashboard({ exchange, isGlobal }) {
       {activeTab === 'positions' && (
         <div className="card">
           <div className="card-header">
-            <h2>Open Positions — Futures</h2>
+            <h2>Posições Abertas — Futuros</h2>
             <span className="tag" style={{ color, background: `${color}22` }}>
-              {positions.length} positions • ↻ 15s
+              {positions.length} {positions.length === 1 ? 'posição' : 'posições'} • ↻ 15s
             </span>
           </div>
           <PositionsTable positions={positions} loading={loadingPositions} />
@@ -418,9 +424,9 @@ function Dashboard({ exchange, isGlobal }) {
       {activeTab === 'spot' && (
         <div className="card">
           <div className="card-header">
-            <h2>Open Positions — Spot</h2>
+            <h2>Posições Abertas — Spot</h2>
             <span className="tag" style={{ color, background: `${color}22` }}>
-              {spotPositions.length} holdings • ↻ 60s
+              {spotPositions.length} {spotPositions.length === 1 ? 'activo' : 'activos'} • ↻ 60s
             </span>
           </div>
           <SpotPositionsTable positions={spotPositions} loading={loadingSpot} isGlobal={isGlobal} />
@@ -430,9 +436,9 @@ function Dashboard({ exchange, isGlobal }) {
       {activeTab === 'balances' && (
         <div className="card">
           <div className="card-header">
-            <h2>Wallet Balances</h2>
+            <h2>Saldos</h2>
             <span className="tag" style={{ color, background: `${color}22` }}>
-              {balances.length} assets • ↻ 60s
+              {balances.length} {balances.length === 1 ? 'activo' : 'activos'} • ↻ 60s
             </span>
           </div>
           <BalancesTable balances={balances} totalUsdt={totalUsdt} isGlobal={isGlobal} loading={loadingBalances} />
@@ -442,9 +448,9 @@ function Dashboard({ exchange, isGlobal }) {
       {activeTab === 'history' && (
         <div className="card">
           <div className="card-header">
-            <h2>Transaction History</h2>
+            <h2>Histórico de Trades</h2>
             <span className="tag" style={{ color, background: `${color}22` }}>
-              {transactions.length} transactions • ↻ 60s
+              {transactions.length} {transactions.length === 1 ? 'transação' : 'transações'} • ↻ 60s
             </span>
           </div>
           <TransactionsTable transactions={transactions} loading={loadingTransactions} isGlobal={isGlobal} />
@@ -463,12 +469,13 @@ function Dashboard({ exchange, isGlobal }) {
   )
 }
 
-// ─── Dashboard Page ────────────────────────────────────────
 export default function DashboardPage({ onLogout }) {
   const [exchanges, setExchanges] = useState([])
   const [activeTab, setActiveTab] = useState('global')
   const [showSettings, setShowSettings] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [showUserMenu, setShowUserMenu] = useState(false)
+  const userMenuRef = useRef(null)
 
   async function fetchExchanges() {
     try {
@@ -483,8 +490,17 @@ export default function DashboardPage({ onLogout }) {
     } catch (e) { console.error(e) }
   }
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional fetch-on-mount
   useEffect(() => { fetchExchanges() }, [])
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
+        setShowUserMenu(false)
+      }
+    }
+    if (showUserMenu) document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showUserMenu])
 
   const activeExchange = exchanges.find(e => e.id === activeTab)
   const isGlobal = activeTab === 'global'
@@ -496,14 +512,21 @@ export default function DashboardPage({ onLogout }) {
         <div className="header-left">
           <div className="logo" style={{ background: `linear-gradient(135deg, ${color}, ${color}99)` }}>₿</div>
           <div>
-            <h1>Crypto Dashboard</h1>
+            <h1>Asset Dashboard</h1>
             <span className="subtitle">{dayjs().format('DD MMM YYYY')}</span>
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <CurrencyToggle />
-          <button className="btn-settings" onClick={() => setShowSettings(true)}>⚙️ Settings</button>
-          <button className="btn-settings" onClick={onLogout} style={{ color: '#ef4444', borderColor: '#ef444433' }}>Logout</button>
+          <div className="user-menu-wrap" ref={userMenuRef}>
+            <button className="btn-user-menu" onClick={() => setShowUserMenu(v => !v)}>☰</button>
+            {showUserMenu && (
+              <div className="user-menu-dropdown">
+                <button onMouseDown={() => { setShowSettings(true); setShowUserMenu(false) }}>⚙️ Definições</button>
+                <button onMouseDown={onLogout} className="user-menu-logout">Sair</button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -531,8 +554,8 @@ export default function DashboardPage({ onLogout }) {
         <Dashboard key={`${activeTab}-${refreshKey}`} exchange={activeExchange} isGlobal={isGlobal} />
       ) : (
         <div className="empty-dashboard">
-          <p>No exchange configured.</p>
-          <button className="btn-primary" onClick={() => setShowSettings(true)}>Configure now</button>
+          <p>Nenhuma exchange configurada.</p>
+          <button className="btn-primary" onClick={() => setShowSettings(true)}>Configurar agora</button>
         </div>
       )}
 

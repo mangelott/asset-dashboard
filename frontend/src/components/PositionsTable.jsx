@@ -2,23 +2,23 @@ import { useCurrency } from '../context/CurrencyContext'
 
 export default function PositionsTable({ positions, loading }) {
   const { formatMoney } = useCurrency()
-  if (loading) return <div className="table-loading">Loading positions...</div>
-  if (!positions.length) return <div className="empty-state">No open positions</div>
+  if (loading) return <div className="table-loading">A carregar posições...</div>
+  if (!positions.length) return <div className="empty-state">Sem posições abertas</div>
 
   return (
     <table>
       <thead>
         <tr>
-          <th>Pair</th>
+          <th>Par</th>
           {positions[0]?.exchange && <th>Exchange</th>}
-          <th>Direction</th>
-          <th>Size</th>
-          <th>Entry Price</th>
-          <th>Current Price</th>
-          <th>P&L $</th>
+          <th>Direção</th>
+          <th>Tamanho</th>
+          <th>Preço Entrada</th>
+          <th>Preço Atual</th>
+          <th>P&L</th>
           <th>P&L %</th>
-          <th>Liq. Price</th>
-          <th>Leverage</th>
+          <th>Liq.</th>
+          <th>Alavancagem</th>
         </tr>
       </thead>
       <tbody>
