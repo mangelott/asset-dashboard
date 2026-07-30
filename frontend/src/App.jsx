@@ -3,12 +3,14 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import axios from 'axios'
 import './App.css'
 import Landing from './pages/Landing'
+import { PlanProvider } from './context/PlanContext'
 
 const AuthPage = lazy(() => import('./pages/AuthPage'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const SharedPortfolio = lazy(() => import('./pages/SharedPortfolio'))
 const Alerts = lazy(() => import('./pages/Alerts'))
 const PaperTrading = lazy(() => import('./pages/PaperTrading'))
+const Upgrade = lazy(() => import('./pages/Upgrade'))
 
 function PageLoading() {
   return <div className="page-loading">Loading...</div>
@@ -35,17 +37,20 @@ export default function App() {
   }
 
   return (
-    <Suspense fallback={<PageLoading />}>
-      <Routes>
-        <Route path="/" element={<Landing isLoggedIn={!!token} />} />
-        <Route path="/login" element={token ? <Navigate to="/dashboard" replace /> : <AuthPage onAuth={handleAuth} defaultMode="login" />} />
-        <Route path="/register" element={token ? <Navigate to="/dashboard" replace /> : <AuthPage onAuth={handleAuth} defaultMode="register" />} />
-        <Route path="/dashboard" element={token ? <DashboardPage onLogout={handleLogout} /> : <Navigate to="/login" replace />} />
-        <Route path="/alerts" element={token ? <Alerts /> : <Navigate to="/login" replace />} />
-        <Route path="/paper-trading" element={token ? <PaperTrading /> : <Navigate to="/login" replace />} />
-        <Route path="/share/:token" element={<SharedPortfolio />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Suspense>
+    <PlanProvider>
+      <Suspense fallback={<PageLoading />}>
+        <Routes>
+          <Route path="/" element={<Landing isLoggedIn={!!token} />} />
+          <Route path="/login" element={token ? <Navigate to="/dashboard" replace /> : <AuthPage onAuth={handleAuth} defaultMode="login" />} />
+          <Route path="/register" element={token ? <Navigate to="/dashboard" replace /> : <AuthPage onAuth={handleAuth} defaultMode="register" />} />
+          <Route path="/dashboard" element={token ? <DashboardPage onLogout={handleLogout} /> : <Navigate to="/login" replace />} />
+          <Route path="/alerts" element={token ? <Alerts /> : <Navigate to="/login" replace />} />
+          <Route path="/paper-trading" element={token ? <PaperTrading /> : <Navigate to="/login" replace />} />
+          <Route path="/upgrade" element={token ? <Upgrade /> : <Navigate to="/login" replace />} />
+          <Route path="/share/:token" element={<SharedPortfolio />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
+    </PlanProvider>
   )
 }

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { API } from '../constants'
 import AppNav from '../components/AppNav'
+import { usePlan } from '../context/PlanContext'
 
 const CONDITIONS = [
   { value: 'candle_close_above', label: 'Vela fecha acima de', needsTimeframe: true },
@@ -15,6 +17,8 @@ const CONDITIONS = [
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '4h', '1d']
 
 export default function Alerts() {
+  const { isPro } = usePlan()
+  const navigate = useNavigate()
   const [alerts, setAlerts] = useState([])
   const [loading, setLoading] = useState(true)
   const [telegramStatus, setTelegramStatus] = useState(null)
@@ -108,8 +112,10 @@ export default function Alerts() {
       })
       setForm({ asset: '', condition: 'candle_close_above', timeframe: '15m', threshold: '', isRecurring: false })
       fetchAlerts()
-    } catch (e) { alert(e.response?.data?.error || 'Erro ao criar alerta') }
-    finally { setSaving(false) }
+    } catch (e) {
+      if (e.response?.status === 402) return navigate('/upgrade')
+      alert(e.response?.data?.error || 'Erro ao criar alerta')
+    } finally { setSaving(false) }
   }
 
   async function removeAlert(id) {
@@ -135,7 +141,17 @@ export default function Alerts() {
 
       <AppNav />
 
-      {pushSupported && (
+      {!isPro && (
+        <div className="pro-gate-banner">
+          <div>
+            <strong>Funcionalidade Pro</strong>
+            <p>Os alertas de preço requerem o plano Pro.</p>
+          </div>
+          <a href="/upgrade" className="btn-upgrade-inline">Ver planos ↗</a>
+        </div>
+      )}
+
+      {pushSupported && isPro && (
         <div className="alert-section">
           <h3>🔔 Notificações no Browser</h3>
           <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '12px' }}>
@@ -152,7 +168,7 @@ export default function Alerts() {
         </div>
       )}
 
-      <div className="card">
+      {isPro && <div className="card">
         <div className="card-header">
           <h2>Telegram</h2>
         </div>
@@ -177,9 +193,9 @@ export default function Alerts() {
             )}
           </div>
         )}
-      </div>
+      </div>}
 
-      <div className="card">
+      {isPro && <div className="card">
         <div className="card-header">
           <h2>Novo Alerta</h2>
         </div>
@@ -216,9 +232,9 @@ export default function Alerts() {
         <button className="btn-primary" onClick={createAlert} disabled={saving}>
           {saving ? 'A criar...' : '+ Criar Alerta'}
         </button>
-      </div>
+      </div>}
 
-      <div className="card">
+      {isPro && <div className="card">
         <div className="card-header">
           <h2>Alertas Ativos</h2>
           <span className="tag" style={{ color: '#6366f1', background: '#6366f122' }}>{alerts.length} alertas</span>
@@ -259,7 +275,7 @@ export default function Alerts() {
             </tbody>
           </table>
         )}
-      </div>
+      </div>}
     </div>
   )
 }

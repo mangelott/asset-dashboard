@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import dayjs from 'dayjs'
 import { API } from '../constants'
 import { useCurrency } from '../context/CurrencyContext'
+import { usePlan } from '../context/PlanContext'
 import AppNav from '../components/AppNav'
 import StrategySpecSummary from '../components/StrategySpecSummary'
 
@@ -580,6 +582,8 @@ function StrategyDetail({ strategyId, onBack }) {
 }
 
 export default function PaperTrading() {
+  const { isPro } = usePlan()
+  const navigate = useNavigate()
   const [strategies, setStrategies] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -622,13 +626,23 @@ export default function PaperTrading() {
 
       <AppNav />
 
-      {loading ? (
+      {!isPro && (
+        <div className="pro-gate-banner">
+          <div>
+            <strong>Funcionalidade Pro</strong>
+            <p>O Paper Trading requer o plano Pro.</p>
+          </div>
+          <a href="/upgrade" className="btn-upgrade-inline">Ver planos ↗</a>
+        </div>
+      )}
+
+      {isPro && (loading ? (
         <div className="table-loading">A carregar...</div>
       ) : selectedId ? (
         <StrategyDetail strategyId={selectedId} onBack={() => { setSelectedId(null); fetchStrategies() }} />
       ) : (
         <StrategyList strategies={strategies} onSelect={setSelectedId} onCreate={createStrategy} onRemove={removeStrategy} />
-      )}
+      ))}
     </div>
   )
 }

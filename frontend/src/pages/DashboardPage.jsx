@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import Calendar from 'react-calendar'
@@ -6,6 +7,7 @@ import dayjs from 'dayjs'
 import 'react-calendar/dist/Calendar.css'
 import { API, EXCHANGE_TYPES } from '../constants'
 import { useCurrency } from '../context/CurrencyContext'
+import { usePlan } from '../context/PlanContext'
 import PositionsTable from '../components/PositionsTable'
 import SpotPositionsTable from '../components/SpotPositionsTable'
 import BalancesTable from '../components/BalancesTable'
@@ -28,6 +30,7 @@ function CurrencyToggle() {
 
 function Dashboard({ exchange, isGlobal }) {
   const { formatMoney } = useCurrency()
+  const { isPro } = usePlan()
   const exchangeId = isGlobal ? 'global' : exchange?.id
   const cached = dashboardCache.get(exchangeId)
 
@@ -462,7 +465,17 @@ function Dashboard({ exchange, isGlobal }) {
           <div className="card-header">
             <h2>P&L Realizado</h2>
           </div>
-          <RealizedPnlPanel exchangeId={exchangeId} isGlobal={isGlobal} />
+          {isPro ? (
+            <RealizedPnlPanel exchangeId={exchangeId} isGlobal={isGlobal} />
+          ) : (
+            <div className="pro-gate-banner" style={{ margin: '8px 0 0' }}>
+              <div>
+                <strong>Funcionalidade Pro</strong>
+                <p>Análise de P&L realizado requer o plano Pro.</p>
+              </div>
+              <a href="/upgrade" className="btn-upgrade-inline">Ver planos ↗</a>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -476,6 +489,8 @@ export default function DashboardPage({ onLogout }) {
   const [refreshKey, setRefreshKey] = useState(0)
   const [showUserMenu, setShowUserMenu] = useState(false)
   const userMenuRef = useRef(null)
+  const { isPro } = usePlan()
+  const navigate = useNavigate()
 
   async function fetchExchanges() {
     try {
@@ -512,7 +527,7 @@ export default function DashboardPage({ onLogout }) {
         <div className="header-left">
           <div className="logo" style={{ background: `linear-gradient(135deg, ${color}, ${color}99)` }}>₿</div>
           <div>
-            <h1>Asset Dashboard</h1>
+            <h1>Asset Dashboard {isPro && <span className="pro-badge">PRO</span>}</h1>
             <span className="subtitle">{dayjs().format('DD MMM YYYY')}</span>
           </div>
         </div>
@@ -523,6 +538,16 @@ export default function DashboardPage({ onLogout }) {
             {showUserMenu && (
               <div className="user-menu-dropdown">
                 <button onMouseDown={() => { setShowSettings(true); setShowUserMenu(false) }}>⚙️ Definições</button>
+                {!isPro && (
+                  <button onMouseDown={() => { navigate('/upgrade'); setShowUserMenu(false) }} style={{ color: '#6366f1', fontWeight: 700 }}>
+                    ⭐ Upgrade para Pro
+                  </button>
+                )}
+                {isPro && (
+                  <button onMouseDown={() => { navigate('/upgrade'); setShowUserMenu(false) }} style={{ color: '#22c55e' }}>
+                    ✅ Gerir Subscrição
+                  </button>
+                )}
                 <button onMouseDown={onLogout} className="user-menu-logout">Sair</button>
               </div>
             )}

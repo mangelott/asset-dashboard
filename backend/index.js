@@ -21,12 +21,17 @@ const anthropic = require('./services/anthropic');
 const { getHistoricalKlines, timeframeMs } = require('./services/bybitMarketData');
 const { runBacktest, splitInOutOfSample } = require('./services/backtestEngine');
 const paperTradingEngine = require('./services/paperTradingEngine');
+const rateLimit = require('express-rate-limit');
+const Stripe = require('stripe');
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' }) : null;
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
+app.use('/api/billing/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
+app.use('/api/', rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false }));
 
 // ─── Adapter Registry ─────────────────────────────────────
 const ADAPTERS = {
@@ -103,6 +108,16 @@ function auth(req, res, next) {
     next();
   } catch {
     res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+async function requirePro(req, res, next) {
+  try {
+    const plan = await db.getUserPlan(req.user.userId);
+    if (plan.plan === 'pro') return next();
+    res.status(402).json({ error: 'Plano Pro necessário', upgrade: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 }
 
@@ -384,7 +399,7 @@ app.get('/api/alerts', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/alerts', auth, async (req, res) => {
+app.post('/api/alerts', auth, requirePro, async (req, res) => {
   try {
     const { asset, condition, timeframe, threshold, isRecurring } = req.body;
     if (!asset || !condition || threshold === undefined) return res.status(400).json({ error: 'Missing required fields' });
@@ -405,13 +420,13 @@ app.delete('/api/alerts/:id', auth, async (req, res) => {
 });
 
 // ─── Paper Trading ────────────────────────────────────────
-app.get('/api/paper/strategies', auth, async (req, res) => {
+app.get('/api/paper/strategies', auth, requirePro, async (req, res) => {
   try {
     res.json(await db.getPaperStrategiesByUserId(req.user.userId));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/paper/strategies', auth, async (req, res) => {
+app.post('/api/paper/strategies', auth, requirePro, async (req, res) => {
   try {
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
@@ -420,7 +435,7 @@ app.post('/api/paper/strategies', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/paper/strategies/:id', auth, async (req, res) => {
+app.get('/api/paper/strategies/:id', auth, requirePro, async (req, res) => {
   try {
     const strategy = await db.getPaperStrategyById(req.user.userId, req.params.id);
     if (!strategy) return res.status(404).json({ error: 'Strategy not found' });
@@ -430,14 +445,14 @@ app.get('/api/paper/strategies/:id', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete('/api/paper/strategies/:id', auth, async (req, res) => {
+app.delete('/api/paper/strategies/:id', auth, requirePro, async (req, res) => {
   try {
     await db.deletePaperStrategy(req.user.userId, req.params.id);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/paper/strategies/:id/chat', auth, async (req, res) => {
+app.post('/api/paper/strategies/:id/chat', auth, requirePro, async (req, res) => {
   try {
     const strategy = await db.getPaperStrategyById(req.user.userId, req.params.id);
     if (!strategy) return res.status(404).json({ error: 'Strategy not found' });
@@ -460,7 +475,7 @@ app.post('/api/paper/strategies/:id/chat', auth, async (req, res) => {
 // makes sense; a 5m "HTF" on a 1h strategy doesn't).
 const TIMEFRAME_RANK = { '1m': 1, '3m': 2, '5m': 3, '15m': 4, '30m': 5, '1h': 6, '2h': 7, '4h': 8, '6h': 9, '12h': 10, '1d': 11, '1w': 12 };
 
-app.post('/api/paper/strategies/:id/apply-spec', auth, async (req, res) => {
+app.post('/api/paper/strategies/:id/apply-spec', auth, requirePro, async (req, res) => {
   try {
     const strategy = await db.getPaperStrategyById(req.user.userId, req.params.id);
     if (!strategy) return res.status(404).json({ error: 'Strategy not found' });
@@ -488,7 +503,7 @@ function aggregateMetrics(results, key) {
   };
 }
 
-app.post('/api/paper/strategies/:id/backtest', auth, async (req, res) => {
+app.post('/api/paper/strategies/:id/backtest', auth, requirePro, async (req, res) => {
   try {
     const strategy = await db.getPaperStrategyById(req.user.userId, req.params.id);
     if (!strategy) return res.status(404).json({ error: 'Strategy not found' });
@@ -546,7 +561,7 @@ app.post('/api/paper/strategies/:id/backtest', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/paper/strategies/:id/activate', auth, async (req, res) => {
+app.post('/api/paper/strategies/:id/activate', auth, requirePro, async (req, res) => {
   try {
     const backtests = await db.getBacktestRunsByStrategyId(req.params.id);
     if (!backtests.length) return res.status(400).json({ error: 'Corre pelo menos um backtest antes de ativar' });
@@ -556,7 +571,7 @@ app.post('/api/paper/strategies/:id/activate', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/paper/strategies/:id/pause', auth, async (req, res) => {
+app.post('/api/paper/strategies/:id/pause', auth, requirePro, async (req, res) => {
   try {
     const updated = await db.updatePaperStrategyStatus(req.user.userId, req.params.id, 'paused');
     if (!updated) return res.status(404).json({ error: 'Strategy not found' });
@@ -564,7 +579,7 @@ app.post('/api/paper/strategies/:id/pause', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/paper/strategies/:id/risk', auth, async (req, res) => {
+app.post('/api/paper/strategies/:id/risk', auth, requirePro, async (req, res) => {
   try {
     const { maxDrawdownPct } = req.body;
     if (maxDrawdownPct !== null && (typeof maxDrawdownPct !== 'number' || maxDrawdownPct <= 0 || maxDrawdownPct > 100)) {
@@ -576,7 +591,7 @@ app.post('/api/paper/strategies/:id/risk', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/paper/strategies/:id/positions', auth, async (req, res) => {
+app.get('/api/paper/strategies/:id/positions', auth, requirePro, async (req, res) => {
   try {
     const strategy = await db.getPaperStrategyById(req.user.userId, req.params.id);
     if (!strategy) return res.status(404).json({ error: 'Strategy not found' });
@@ -584,7 +599,7 @@ app.get('/api/paper/strategies/:id/positions', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/paper/strategies/:id/equity', auth, async (req, res) => {
+app.get('/api/paper/strategies/:id/equity', auth, requirePro, async (req, res) => {
   try {
     const strategy = await db.getPaperStrategyById(req.user.userId, req.params.id);
     if (!strategy) return res.status(404).json({ error: 'Strategy not found' });
@@ -766,7 +781,7 @@ async function fetchTradeHistory(exchange) {
   return adapter.getTradeHistory(exchange.api_key, exchange.api_secret);
 }
 
-app.get('/api/exchange/:id/realized-pnl', auth, async (req, res) => {
+app.get('/api/exchange/:id/realized-pnl', auth, requirePro, async (req, res) => {
   try {
     const exchange = await db.getExchangeById(req.user.userId, req.params.id);
     if (!exchange) return res.status(404).json({ error: 'Exchange not found' });
@@ -775,7 +790,7 @@ app.get('/api/exchange/:id/realized-pnl', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/global/realized-pnl', auth, async (req, res) => {
+app.get('/api/global/realized-pnl', auth, requirePro, async (req, res) => {
   try {
     const list = await db.getAllExchanges(req.user.userId);
     const exchanges = await Promise.all(list.map(e => db.getExchangeById(req.user.userId, e.id)));
@@ -795,7 +810,7 @@ app.get('/api/push/vapid-public-key', (req, res) => {
   res.json({ publicKey: alertEngine.VAPID_PUBLIC });
 });
 
-app.post('/api/push/subscribe', auth, async (req, res) => {
+app.post('/api/push/subscribe', auth, requirePro, async (req, res) => {
   try {
     const { endpoint, keys } = req.body;
     if (!endpoint || !keys?.p256dh || !keys?.auth) return res.status(400).json({ error: 'Invalid subscription' });
@@ -813,7 +828,7 @@ app.delete('/api/push/unsubscribe', auth, async (req, res) => {
 });
 
 // ─── Benchmark ────────────────────────────────────────────
-app.get('/api/benchmark', auth, async (req, res) => {
+app.get('/api/benchmark', auth, requirePro, async (req, res) => {
   try {
     const { from } = req.query;
     const startMs = from ? new Date(from).getTime() : Date.now() - 365 * 24 * 3600 * 1000;
@@ -858,12 +873,91 @@ cron.schedule('0 * * * *', async () => {
   } catch (e) { console.error('Intraday snapshot cron error:', e.message); }
 });
 
-app.get('/api/intraday-snapshots/:exchangeId', auth, async (req, res) => {
+app.get('/api/intraday-snapshots/:exchangeId', auth, requirePro, async (req, res) => {
   try {
     const { since } = req.query;
     const rows = await db.getIntradaySnapshots(req.user.userId, req.params.exchangeId, since);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── Billing ──────────────────────────────────────────────
+app.get('/api/billing/plan', auth, async (req, res) => {
+  try {
+    res.json(await db.getUserPlan(req.user.userId));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/billing/checkout', auth, async (req, res) => {
+  try {
+    if (!stripe) return res.status(503).json({ error: 'Billing não configurado ainda' });
+    const { priceId } = req.body;
+    if (!priceId) return res.status(400).json({ error: 'priceId obrigatório' });
+    const plan = await db.getUserPlan(req.user.userId);
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      ...(plan.stripe_customer_id ? { customer: plan.stripe_customer_id } : { customer_email: req.user.email }),
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard?upgraded=1`,
+      cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/upgrade`,
+      metadata: { userId: String(req.user.userId) }
+    });
+    res.json({ url: session.url });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/billing/portal', auth, async (req, res) => {
+  try {
+    if (!stripe) return res.status(503).json({ error: 'Billing não configurado ainda' });
+    const plan = await db.getUserPlan(req.user.userId);
+    if (!plan.stripe_customer_id) return res.status(400).json({ error: 'Sem conta de faturação associada' });
+    const session = await stripe.billingPortal.sessions.create({
+      customer: plan.stripe_customer_id,
+      return_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard`
+    });
+    res.json({ url: session.url });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/billing/webhook', async (req, res) => {
+  if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) return res.status(503).send('Not configured');
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (e) {
+    return res.status(400).send(`Webhook error: ${e.message}`);
+  }
+  try {
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      const userId = parseInt(session.metadata?.userId);
+      if (userId) {
+        await db.upsertUserPlan(userId, { plan: 'pro', stripeCustomerId: session.customer, stripeSubscriptionId: session.subscription });
+      }
+    } else if (event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.created') {
+      const sub = event.data.object;
+      const plan = await db.getUserPlanByStripeCustomerId(sub.customer);
+      if (plan) {
+        const isActive = sub.status === 'active' || sub.status === 'trialing';
+        await db.upsertUserPlan(plan.user_id, {
+          plan: isActive ? 'pro' : 'free',
+          stripeSubscriptionId: sub.id,
+          stripePriceId: sub.items?.data[0]?.price?.id,
+          currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
+          cancelAtPeriodEnd: sub.cancel_at_period_end
+        });
+      }
+    } else if (event.type === 'customer.subscription.deleted') {
+      const sub = event.data.object;
+      const plan = await db.getUserPlanByStripeCustomerId(sub.customer);
+      if (plan) await db.upsertUserPlan(plan.user_id, { plan: 'free', stripeSubscriptionId: null, cancelAtPeriodEnd: false });
+    }
+    res.json({ received: true });
+  } catch (e) {
+    console.error('Webhook handler error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
