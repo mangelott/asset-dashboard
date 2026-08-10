@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import { useNavigate } from 'react-router-dom'
 import { API } from '../constants'
+import { usePlan } from '../context/PlanContext'
 import AppNav from '../components/AppNav'
 
 const CONDITIONS = [
@@ -15,6 +17,8 @@ const CONDITIONS = [
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '4h', '1d']
 
 export default function Alerts() {
+  const { isPro } = usePlan()
+  const navigate = useNavigate()
   const [alerts, setAlerts] = useState([])
   const [loading, setLoading] = useState(true)
   const [telegramStatus, setTelegramStatus] = useState(null)
@@ -108,7 +112,10 @@ export default function Alerts() {
       })
       setForm({ asset: '', condition: 'candle_close_above', timeframe: '15m', threshold: '', isRecurring: false })
       fetchAlerts()
-    } catch (e) { alert(e.response?.data?.error || 'Erro ao criar alerta') }
+    } catch (e) {
+      if (e.response?.status === 402) return navigate('/upgrade')
+      alert(e.response?.data?.error || 'Erro ao criar alerta')
+    }
     finally { setSaving(false) }
   }
 
@@ -135,7 +142,17 @@ export default function Alerts() {
 
       <AppNav />
 
-      {pushSupported && (
+      {!isPro && (
+        <div className="pro-gate-banner">
+          <div>
+            <strong>Funcionalidade Pro</strong>
+            <p>Os alertas de preço requerem o plano Pro.</p>
+          </div>
+          <a href="/upgrade" className="btn-upgrade-inline">Ver planos ↗</a>
+        </div>
+      )}
+
+      {isPro && pushSupported && (
         <div className="alert-section">
           <h3>🔔 Notificações no Browser</h3>
           <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '12px' }}>
@@ -152,6 +169,7 @@ export default function Alerts() {
         </div>
       )}
 
+      {isPro && (
       <div className="card">
         <div className="card-header">
           <h2>Telegram</h2>
@@ -178,7 +196,9 @@ export default function Alerts() {
           </div>
         )}
       </div>
+      )}
 
+      {isPro && (
       <div className="card">
         <div className="card-header">
           <h2>Novo Alerta</h2>
@@ -217,7 +237,9 @@ export default function Alerts() {
           {saving ? 'A criar...' : '+ Criar Alerta'}
         </button>
       </div>
+      )}
 
+      {isPro && (
       <div className="card">
         <div className="card-header">
           <h2>Alertas Ativos</h2>
@@ -260,6 +282,7 @@ export default function Alerts() {
           </table>
         )}
       </div>
+      )}
     </div>
   )
 }

@@ -185,6 +185,18 @@ async function initDB() {
       recorded_at TIMESTAMP NOT NULL DEFAULT NOW(),
       total_value_usdt DECIMAL(20, 8) NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS user_plans (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      plan VARCHAR(20) NOT NULL DEFAULT 'free',
+      stripe_customer_id VARCHAR(100),
+      stripe_subscription_id VARCHAR(100),
+      stripe_price_id VARCHAR(100),
+      current_period_end TIMESTAMP,
+      cancel_at_period_end BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
   `);
 }
 
@@ -405,6 +417,35 @@ async function getIntradaySnapshots(userId, exchangeId, since) {
     [userId, exchangeId, sinceTs]
   );
   return rows;
+}
+
+// ─── User Plans ───────────────────────────────────────────
+async function getUserPlan(userId) {
+  const { rows } = await pool.query('SELECT * FROM user_plans WHERE user_id = $1', [userId]);
+  return rows[0] || { user_id: userId, plan: 'free' };
+}
+
+async function getUserPlanByStripeCustomerId(stripeCustomerId) {
+  const { rows } = await pool.query('SELECT * FROM user_plans WHERE stripe_customer_id = $1', [stripeCustomerId]);
+  return rows[0] || null;
+}
+
+async function upsertUserPlan(userId, data) {
+  const { plan, stripeCustomerId, stripeSubscriptionId, stripePriceId, currentPeriodEnd, cancelAtPeriodEnd } = data;
+  const { rows } = await pool.query(`
+    INSERT INTO user_plans (user_id, plan, stripe_customer_id, stripe_subscription_id, stripe_price_id, current_period_end, cancel_at_period_end, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+    ON CONFLICT (user_id) DO UPDATE SET
+      plan = EXCLUDED.plan,
+      stripe_customer_id = COALESCE(EXCLUDED.stripe_customer_id, user_plans.stripe_customer_id),
+      stripe_subscription_id = COALESCE(EXCLUDED.stripe_subscription_id, user_plans.stripe_subscription_id),
+      stripe_price_id = COALESCE(EXCLUDED.stripe_price_id, user_plans.stripe_price_id),
+      current_period_end = COALESCE(EXCLUDED.current_period_end, user_plans.current_period_end),
+      cancel_at_period_end = COALESCE(EXCLUDED.cancel_at_period_end, user_plans.cancel_at_period_end),
+      updated_at = NOW()
+    RETURNING *
+  `, [userId, plan, stripeCustomerId || null, stripeSubscriptionId || null, stripePriceId || null, currentPeriodEnd || null, cancelAtPeriodEnd ?? false]);
+  return rows[0];
 }
 
 async function getAllActivePriceAlerts() {
@@ -653,5 +694,8 @@ module.exports = {
   getPushSubscriptionsByUserId,
   deletePushSubscription,
   saveIntradaySnapshot,
-  getIntradaySnapshots
+  getIntradaySnapshots,
+  getUserPlan,
+  getUserPlanByStripeCustomerId,
+  upsertUserPlan
 };
