@@ -111,8 +111,17 @@ function auth(req, res, next) {
   }
 }
 
+const FOUNDER_EMAILS = new Set(
+  (process.env.FOUNDER_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+);
+
+function isFounder(email) {
+  return email && FOUNDER_EMAILS.has(email.toLowerCase());
+}
+
 async function requirePro(req, res, next) {
   try {
+    if (isFounder(req.user.email)) return next();
     const plan = await db.getUserPlan(req.user.userId);
     if (plan.plan === 'pro') return next();
     res.status(402).json({ error: 'Plano Pro necessário', upgrade: true });
@@ -884,6 +893,7 @@ app.get('/api/intraday-snapshots/:exchangeId', auth, requirePro, async (req, res
 // ─── Billing ──────────────────────────────────────────────
 app.get('/api/billing/plan', auth, async (req, res) => {
   try {
+    if (isFounder(req.user.email)) return res.json({ plan: 'pro', founder: true });
     res.json(await db.getUserPlan(req.user.userId));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
