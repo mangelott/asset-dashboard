@@ -1,0 +1,62 @@
+name: Analyse Strategy Videos
+
+on:
+  workflow_dispatch:
+    inputs:
+      youtube_urls:
+        description: 'YouTube URLs (comma-separated, no spaces)'
+        required: true
+        type: string
+      output_filename:
+        description: 'Output file name (without .md)'
+        required: false
+        default: 'strategy_gold_v1'
+
+jobs:
+  analyse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180   # 3 h max — enough for 10 x 30 min videos
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies (ffmpeg)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install yt-dlp openai-whisper anthropic
+
+      - name: Run video analysis
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          YOUTUBE_URLS: ${{ inputs.youtube_urls }}
+          OUTPUT_FILE: ${{ inputs.output_filename }}
+        run: |
+          mkdir -p strategies
+          python scripts/analyse_videos.py
+
+      - name: Commit strategy document to repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add strategies/
+          git diff --staged --quiet && echo "Nothing to commit" || \
+            (git commit -m "feat: add Gold strategy analysis from YouTube videos" && git push)
+
+      - name: Upload strategy as workflow artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gold-strategy-${{ github.run_number }}
+          path: strategies/
+          retention-days: 90
