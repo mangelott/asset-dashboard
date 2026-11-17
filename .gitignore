@@ -1,1 +1,4 @@
 backend/crypto-dashboard.db
+
+# Claude Code worktrees (pastas locais de sessões)
+.claude/worktrees/
